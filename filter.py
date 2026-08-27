@@ -5,7 +5,8 @@ from pathlib import Path
 SOURCE = "https://iptv-org.github.io/iptv/countries/hu.m3u"
 OUTPUT = Path("magyar.m3u")
 
-BAD = [
+# Egyértelműen kizárt témák és helyi TV megnevezések.
+EXCLUDE = [
     "radio",
     "rádió",
     "religious",
@@ -20,9 +21,6 @@ BAD = [
     "evangelikus",
     "biblia",
     "bible",
-    "jesus",
-    "jézus",
-    "jezus",
     "helyi tv",
     "helyi televízió",
     "helyi televizio",
@@ -47,27 +45,39 @@ BAD = [
     "city tv",
     "citytv",
     "municipal tv",
-    "community tv"
+    "community tv",
+    "országgyűlés",
+    "orszaggyules",
+    "ogy plenáris",
+    "ogy plenaris",
+    "ogy tab"
 ]
 
 
-def norm(text):
+def normalize(text):
     text = str(text or "").lower()
-    text = text.replace("á", "a")
-    text = text.replace("é", "e")
-    text = text.replace("í", "i")
-    text = text.replace("ó", "o")
-    text = text.replace("ö", "o")
-    text = text.replace("ő", "o")
-    text = text.replace("ú", "u")
-    text = text.replace("ü", "u")
-    text = text.replace("ű", "u")
+
+    replacements = {
+        "á": "a",
+        "é": "e",
+        "í": "i",
+        "ó": "o",
+        "ö": "o",
+        "ő": "o",
+        "ú": "u",
+        "ü": "u",
+        "ű": "u"
+    }
+
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+
     return re.sub(r"\s+", " ", text).strip()
 
 
 def main():
 
-    print("IPTV-org magyar lista letöltése...")
+    print("Magyar IPTV lista letöltése...")
 
     request = urllib.request.Request(
         SOURCE,
@@ -90,82 +100,84 @@ def main():
         data
     )
 
-    blocks = [
-        block.strip()
-        for block in blocks
-        if block.strip().startswith("#EXTINF")
-    ]
-
-    print(
-        "Forrás csatornák:",
-        len(blocks)
-    )
-
     result = []
     seen = set()
 
     for block in blocks:
+
+        block = block.strip()
+
+        if not block.startswith("#EXTINF"):
+            continue
 
         lines = block.splitlines()
 
         if not lines:
             continue
 
-        name = ""
+        extinf = lines[0]
 
-        for line in lines:
-
-            if line.startswith("#EXTINF"):
-
-                if "," in line:
-                    name = line.split(
-                        ",",
-                        1
-                    )[1].strip()
-
-                break
-
-        if not name:
+        if "," not in extinf:
             continue
 
-        text = norm(block)
+        name = extinf.split(
+            ",",
+            1
+        )[1].strip()
+
+        search_text = normalize(
+            block
+        )
 
         excluded = False
 
-        for bad in BAD:
+        for word in EXCLUDE:
 
-            if norm(bad) in text:
+            if normalize(word) in search_text:
                 excluded = True
                 break
 
         if excluded:
             continue
 
-        key = norm(name)
+        key = normalize(name)
 
         if key in seen:
             continue
 
         seen.add(key)
-
         result.append(block)
 
+    def channel_name(block):
+        line = block.splitlines()[0]
+
+        if "," in line:
+            return normalize(
+                line.split(",", 1)[1]
+            )
+
+        return ""
+
     result.sort(
-        key=lambda block: norm(
-            block.split(",", 1)[-1]
-            .splitlines()[0]
-        )
+        key=channel_name
     )
 
-    output = [
-        "#EXTM3U"
+    lines = [
+        "#EXTM3U",
+        "# Magyar nyelvű magyar TV csatornák",
+        "# Vallási és helyi csatornák nélkül"
     ]
 
-    output.extend(result)
+    lines.extend(result)
 
     OUTPUT.write_text(
-        "\n".join(output) + "\n",
+        "\n\n".join(lines) + "\n",
         encoding="utf-8"
+    )
+
+    print(
+        "Forrás csatornák:",
+        len(blocks)
     )
 
     print(
@@ -174,8 +186,7 @@ def main():
     )
 
     print(
-        "Playlist elkészült:",
-        OUTPUT
+        "magyar.m3u elkészült."
     )
 
 
