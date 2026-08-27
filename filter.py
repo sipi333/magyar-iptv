@@ -1,399 +1,181 @@
-import json
+import re
 import urllib.request
 from pathlib import Path
 
-API = "https://iptv-org.github.io/api"
+SOURCE = "https://iptv-org.github.io/iptv/countries/hu.m3u"
 OUTPUT = Path("magyar.m3u")
 
-
-def get_json(url):
-    req = urllib.request.Request(
-        url,
-        headers={"User-Agent": "Mozilla/5.0"}
-    )
-    with urllib.request.urlopen(req, timeout=120) as r:
-        return json.load(r)
-
-
-def norm(value):
-    return str(value or "").strip().lower()
-
-
-def quality(value):
-    digits = "".join(
-        c for c in str(value or "")
-        if c.isdigit()
-    )
-    return int(digits) if digits else 0
-
-
-def religious(channel):
-    categories = {
-        norm(x)
-        for x in channel.get("categories", [])
-    }
-    return "religious" in categories
-
-
-def local_feed(feed):
-    areas = {
-        norm(x)
-        for x in feed.get("broadcast_area", [])
-    }
-
-    if "c/hu" not in areas:
-        return True
-
-    for area in areas:
-        if area.startswith("r/"):
-            return True
-        if area.startswith("s/"):
-            return True
-        if area.startswith("ct/"):
-            return True
-
-    return False
+BAD = [
+    "radio",
+    "rádió",
+    "religious",
+    "vallási",
+    "christian",
+    "gospel",
+    "catholic",
+    "katolikus",
+    "református",
+    "reformatus",
+    "evangélikus",
+    "evangelikus",
+    "biblia",
+    "bible",
+    "jesus",
+    "jézus",
+    "jezus",
+    "helyi tv",
+    "helyi televízió",
+    "helyi televizio",
+    "városi tv",
+    "varosi tv",
+    "városi televízió",
+    "varosi televizio",
+    "regionális tv",
+    "regionalis tv",
+    "régiós tv",
+    "regios tv",
+    "térségi tv",
+    "tersegi tv",
+    "megyei tv",
+    "megye tv",
+    "kerületi tv",
+    "keruleti tv",
+    "önkormányzati tv",
+    "onkormanyzati tv",
+    "local tv",
+    "localtv",
+    "city tv",
+    "citytv",
+    "municipal tv",
+    "community tv"
+]
 
 
-def local_name(channel, feed):
-
-    names = [
-        channel.get("name", ""),
-        feed.get("name", "")
-    ]
-
-    names += channel.get(
-        "alt_names", []
-    )
-
-    names += feed.get(
-        "alt_names", []
-    )
-
-    bad = [
-        "városi tv",
-        "varosi tv",
-        "városi televízió",
-        "varosi televizio",
-        "helyi tv",
-        "helyi televízió",
-        "helyi televizio",
-        "regionális tv",
-        "regionalis tv",
-        "régiós tv",
-        "regios tv",
-        "térségi tv",
-        "tersegi tv",
-        "megyei tv",
-        "megyei televízió",
-        "megyei televizio",
-        "kerületi tv",
-        "keruleti tv",
-        "önkormányzati tv",
-        "onkormanyzati tv",
-        "local tv",
-        "community tv"
-    ]
-
-    for name in names:
-        name = norm(name)
-
-        for word in bad:
-            if word in name:
-                return True
-
-    return False
+def norm(text):
+    text = str(text or "").lower()
+    text = text.replace("á", "a")
+    text = text.replace("é", "e")
+    text = text.replace("í", "i")
+    text = text.replace("ó", "o")
+    text = text.replace("ö", "o")
+    text = text.replace("ő", "o")
+    text = text.replace("ú", "u")
+    text = text.replace("ü", "u")
+    text = text.replace("ű", "u")
+    return re.sub(r"\s+", " ", text).strip()
 
 
 def main():
 
-    print("IPTV-org API letöltése...")
+    print("IPTV-org magyar lista letöltése...")
 
-    channels = get_json(
-        API + "/channels.json"
-    )
-
-    feeds = get_json(
-        API + "/feeds.json"
-    )
-
-    streams = get_json(
-        API + "/streams.json"
-    )
-
-    logos = get_json(
-        API + "/logos.json"
-    )
-
-    channels_by_id = {
-        c["id"]: c
-        for c in channels
-        if c.get("id")
-    }
-
-    logos_by_channel = {}
-
-    for logo in logos:
-
-        channel_id = logo.get(
-            "channel"
-        )
-
-        if not channel_id:
-            continue
-
-        if (
-            channel_id
-            not in logos_by_channel
-        ):
-            logos_by_channel[
-                channel_id
-            ] = logo
-
-        elif logo.get("in_use"):
-
-            logos_by_channel[
-                channel_id
-            ] = logo
-
-    valid = []
-
-    for feed in feeds:
-
-        channel_id = feed.get(
-            "channel"
-        )
-
-        if not channel_id:
-            continue
-
-        channel = channels_by_id.get(
-            channel_id
-        )
-
-        if not channel:
-            continue
-
-        if channel.get(
-            "country"
-        ) != "HU":
-            continue
-
-        if religious(channel):
-            continue
-
-        languages = {
-            norm(x)
-            for x in feed.get(
-                "languages",
-                []
-            )
+    request = urllib.request.Request(
+        SOURCE,
+        headers={
+            "User-Agent": "Mozilla/5.0"
         }
+    )
 
-        if "hun" not in languages:
-            continue
+    with urllib.request.urlopen(
+        request,
+        timeout=120
+    ) as response:
+        data = response.read().decode(
+            "utf-8",
+            "replace"
+        )
 
-        if local_feed(feed):
-            continue
+    blocks = re.split(
+        r"(?=#EXTINF)",
+        data
+    )
 
-        if local_name(
-            channel,
-            feed
-        ):
-            continue
-
-        valid.append(feed)
+    blocks = [
+        block.strip()
+        for block in blocks
+        if block.strip().startswith("#EXTINF")
+    ]
 
     print(
-        "Megfelelő magyar országos feedek:",
-        len(valid)
+        "Forrás csatornák:",
+        len(blocks)
     )
 
-    valid_keys = {
-        (
-            f.get("channel"),
-            f.get("id")
-        )
-        for f in valid
-    }
+    result = []
+    seen = set()
 
-    streams_by_feed = {}
+    for block in blocks:
 
-    for stream in streams:
+        lines = block.splitlines()
 
-        key = (
-            stream.get("channel"),
-            stream.get("feed")
-        )
-
-        if key not in valid_keys:
+        if not lines:
             continue
 
-        if not stream.get("url"):
+        name = ""
+
+        for line in lines:
+
+            if line.startswith("#EXTINF"):
+
+                if "," in line:
+                    name = line.split(
+                        ",",
+                        1
+                    )[1].strip()
+
+                break
+
+        if not name:
             continue
 
-        streams_by_feed.setdefault(
-            key,
-            []
-        ).append(stream)
+        text = norm(block)
 
-    result = {}
+        excluded = False
 
-    for feed in valid:
+        for bad in BAD:
 
-        channel_id = feed.get(
-            "channel"
-        )
+            if norm(bad) in text:
+                excluded = True
+                break
 
-        feed_id = feed.get(
-            "id"
-        )
-
-        channel = channels_by_id.get(
-            channel_id
-        )
-
-        available = streams_by_feed.get(
-            (
-                channel_id,
-                feed_id
-            ),
-            []
-        )
-
-        if not channel:
+        if excluded:
             continue
 
-        if not available:
+        key = norm(name)
+
+        if key in seen:
             continue
 
-        available.sort(
-            key=lambda x:
-            -quality(
-                x.get("quality")
-            )
+        seen.add(key)
+
+        result.append(block)
+
+    result.sort(
+        key=lambda block: norm(
+            block.split(",", 1)[-1]
+            .splitlines()[0]
         )
-
-        stream = available[0]
-
-        name = str(
-            channel.get(
-                "name",
-                channel_id
-            )
-        )
-
-        logo = ""
-
-        if channel_id in logos_by_channel:
-
-            logo = str(
-                logos_by_channel[
-                    channel_id
-                ].get(
-                    "url",
-                    ""
-                )
-            )
-
-        item = {
-            "id": channel_id,
-            "name": name,
-            "logo": logo,
-            "url": str(
-                stream.get("url")
-            ),
-            "referrer": str(
-                stream.get(
-                    "referrer"
-                ) or ""
-            ),
-            "user_agent": str(
-                stream.get(
-                    "user_agent"
-                ) or ""
-            ),
-            "quality": quality(
-                stream.get("quality")
-            )
-        }
-
-        old = result.get(
-            channel_id
-        )
-
-        if old is None:
-            result[channel_id] = item
-
-        elif item["quality"] > old["quality"]:
-            result[channel_id] = item
-
-    items = list(
-        result.values()
     )
 
-    items.sort(
-        key=lambda x:
-        norm(x["name"])
-    )
-
-    print(
-        "Végleges csatornák:",
-        len(items)
-    )
-
-    lines = [
+    output = [
         "#EXTM3U"
     ]
 
-    for item in items:
-
-        name = item["name"].replace(
-            '"',
-            "'"
-        )
-
-        channel_id = item["id"].replace(
-            '"',
-            "'"
-        )
-
-        logo = item["logo"].replace(
-            '"',
-            "'"
-        )
-
-        lines.append(
-            '#EXTINF:-1 '
-            f'tvg-id="{channel_id}" '
-            f'tvg-name="{name}" '
-            f'tvg-logo="{logo}" '
-            f'group-title="Magyarorszag",{name}'
-        )
-
-        if item["referrer"]:
-            lines.append(
-                "#EXTVLCOPT:http-referrer="
-                + item["referrer"]
-            )
-
-        if item["user_agent"]:
-            lines.append(
-                "#EXTVLCOPT:http-user-agent="
-                + item["user_agent"]
-            )
-
-        lines.append(
-            item["url"]
-        )
+    output.extend(result)
 
     OUTPUT.write_text(
-        "\n".join(lines) + "\n",
+        "\n".join(output) + "\n",
         encoding="utf-8"
     )
 
     print(
-        "magyar.m3u elkészült."
+        "Megmaradt csatornák:",
+        len(result)
+    )
+
+    print(
+        "Playlist elkészült:",
+        OUTPUT
     )
 
 
