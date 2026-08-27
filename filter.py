@@ -2,49 +2,97 @@ import json
 import urllib.request
 from pathlib import Path
 
-API = "https://iptv-org.github.io/api"
+SOURCE = "https://iptv-org.github.io/iptv/index.m3u"
 OUTPUT = Path("magyar.m3u")
 
-# Olyan csatornaazonosítók, amelyek rövid nevük miatt
-# külön kizárást igényelnek.
+API = "https://iptv-org.github.io/api"
+
+# Néhány problémás, rövid azonosító külön kizárása.
 EXCLUDE_IDS = {
     "BTV.hu",
 }
 
-# Kizárt kategóriák.
+# Ezeket a kategóriákat nem szeretnénk.
 EXCLUDE_CATEGORIES = {
     "religious",
     "radio",
 }
 
 
-def get_json(filename):
-    url = API + "/" + filename
-
+def download(url):
     request = urllib.request.Request(
         url,
-        headers={"User-Agent": "Mozilla/5.0"}
+        headers={
+            "User-Agent": "Mozilla/5.0"
+        }
     )
 
     with urllib.request.urlopen(
         request,
         timeout=120
     ) as response:
-        return json.load(response)
+        return response.read().decode(
+            "utf-8",
+            errors="replace"
+        )
 
 
-def is_hungarian(feed):
-    return "hun" in feed.get("languages", [])
+def get_json(name):
+    return json.loads(
+        download(API + "/" + name)
+    )
 
 
-def is_countrywide(feed):
-    areas = feed.get("broadcast_area", [])
+def parse_m3u(text):
+    entries = []
+    current = None
 
-    return "c/HU" in areas
+    for line in text.splitlines():
+        line = line.strip()
+
+        if not line:
+            continue
+
+        if line.startswith("#EXTINF:"):
+            current = {
+                "info": line,
+                "url": None,
+            }
+
+        elif (
+            current is not None
+            and not line.startswith("#")
+        ):
+            current["url"] = line
+            entries.append(current)
+            current = None
+
+    return entries
 
 
-def is_local_or_regional(feed):
-    areas = feed.get("broadcast_area", [])
+def get_attr(line, name):
+    marker = name + '="'
+
+    start = line.find(marker)
+
+    if start == -1:
+        return ""
+
+    start += len(marker)
+
+    end = line.find('"', start)
+
+    if end == -1:
+        return ""
+
+    return line[start:end]
+
+
+def is_local_area(feed):
+    areas = feed.get(
+        "broadcast_area",
+        []
+    )
 
     for area in areas:
         if (
@@ -57,20 +105,46 @@ def is_local_or_regional(feed):
     return False
 
 
-def contains_local_words(channel, feed):
-    values = []
+def is_hungarian_feed(feed):
+    languages = feed.get(
+        "languages",
+        []
+    )
 
-    values.append(channel.get("name", ""))
-    values.extend(channel.get("alt_names", []))
-    values.append(feed.get("name", ""))
-    values.extend(feed.get("alt_names", []))
+    return "hun" in languages
+
+
+def is_countrywide(feed):
+    return "c/HU" in feed.get(
+        "broadcast_area",
+        []
+    )
+
+
+def local_name_check(channel, feed):
+    text_parts = []
+
+    text_parts.append(
+        channel.get("name", "")
+    )
+
+    for name in channel.get(
+        "alt_names",
+        []
+    ):
+        text_parts.append(name)
+
+    text_parts.append(
+        feed.get("name", "")
+    )
 
     text = " ".join(
         str(x).lower()
-        for x in values
+        for x in text_parts
     )
 
-    words = [
+    # Általános helyi/önkormányzati jelölések.
+    bad_phrases = (
         "városi tv",
         "varosi tv",
         "városi televízió",
@@ -89,37 +163,36 @@ def contains_local_words(channel, feed):
         "keruleti tv",
         "önkormányzati tv",
         "onkormanyzati tv",
-        "local tv",
-        "localtv",
         "city tv",
         "citytv",
-        "community tv",
-        "közösségi tv",
-        "kozossegi tv",
-    ]
+        "local tv",
+        "localtv",
+    )
 
     return any(
-        word in text
-        for word in words
+        phrase in text
+        for phrase in bad_phrases
     )
-
-
-def stream_quality(stream):
-    quality = str(
-        stream.get("quality") or ""
-    )
-
-    digits = "".join(
-        c for c in quality
-        if c.isdigit()
-    )
-
-    return int(digits or 0)
 
 
 def main():
 
-    print("IPTV-org adatok letöltése...")
+    print("IPTV-org index.m3u letöltése...")
+
+    playlist_text = download(
+        SOURCE
+    )
+
+    entries = parse_m3u(
+        playlist_text
+    )
+
+    print(
+        "Indexben talált bejegyzések:",
+        len(entries)
+    )
+
+    print("IPTV-org API adatok letöltése...")
 
     channels = get_json(
         "channels.json"
@@ -129,24 +202,27 @@ def main():
         "feeds.json"
     )
 
-    streams = get_json(
-        "streams.json"
-    )
-
     logos = get_json(
         "logos.json"
     )
 
     channel_map = {
-        channel["id"]: channel
-        for channel in channels
-        if channel.get("id")
+        item["id"]: item
+        for item in channels
+        if item.get("id")
     }
+
+    feed_map = {}
+
+    for feed in feeds:
+        feed_id = feed.get("id")
+
+        if feed_id:
+            feed_map[feed_id] = feed
 
     logo_map = {}
 
     for logo in logos:
-
         channel_id = logo.get(
             "channel"
         )
@@ -163,7 +239,9 @@ def main():
                 ""
             )
 
-    valid_feeds = {}
+    # Mely csatornák rendelkeznek megfelelő
+    # magyar, országos feed-del?
+    valid_channels = {}
 
     for feed in feeds:
 
@@ -189,7 +267,9 @@ def main():
         ) != "HU":
             continue
 
-        if not is_hungarian(feed):
+        if not is_hungarian_feed(
+            feed
+        ):
             continue
 
         categories = set(
@@ -204,85 +284,66 @@ def main():
         ):
             continue
 
-        if is_local_or_regional(feed):
+        if is_local_area(feed):
             continue
 
-        if contains_local_words(
+        if local_name_check(
             channel,
             feed
         ):
             continue
 
-        # Országos feed.
-        if not is_countrywide(feed):
-            continue
-
-        old = valid_feeds.get(
-            channel_id
-        )
-
-        # Ha több országos feed van,
-        # az is_main legyen az elsődleges.
-        if old is None:
-            valid_feeds[channel_id] = feed
-
-        elif feed.get("is_main"):
-            valid_feeds[channel_id] = feed
-
-    print(
-        "Megfelelő magyar országos feedek:",
-        len(valid_feeds)
-    )
-
-    best_stream = {}
-
-    for stream in streams:
-
-        channel_id = stream.get(
-            "channel"
-        )
-
-        feed_id = stream.get(
-            "feed"
-        )
-
-        if channel_id not in valid_feeds:
-            continue
-
-        selected_feed = valid_feeds[
-            channel_id
-        ]
-
-        if feed_id != selected_feed.get(
-            "id"
+        if not is_countrywide(
+            feed
         ):
             continue
 
-        url = stream.get("url")
+        old = valid_channels.get(
+            channel_id
+        )
+
+        # Több országos feed esetén az is_main
+        # legyen az elsődleges.
+        if old is None:
+            valid_channels[
+                channel_id
+            ] = feed
+
+        elif feed.get(
+            "is_main",
+            False
+        ):
+            valid_channels[
+                channel_id
+            ] = feed
+
+    print(
+        "Megfelelő magyar országos csatornák:",
+        len(valid_channels)
+    )
+
+    # Az index.m3u bejegyzéseit összepárosítjuk
+    # az API-ban megtalált csatornákkal.
+    result = []
+
+    for entry in entries:
+
+        info = entry["info"]
+        url = entry["url"]
 
         if not url:
             continue
 
-        quality = stream_quality(
-            stream
+        channel_id = get_attr(
+            info,
+            "tvg-id"
         )
 
-        old = best_stream.get(
-            channel_id
-        )
+        if not channel_id:
+            continue
 
-        if (
-            old is None
-            or quality > old[0]
-        ):
-            best_stream[channel_id] = (
-                quality,
-                stream
-            )
-
-    result = []
-
-    for channel_id, data in best_stream.items():
+        if channel_id not in valid_channels:
+            continue
 
         channel = channel_map.get(
             channel_id
@@ -291,32 +352,54 @@ def main():
         if not channel:
             continue
 
-        stream = data[1]
+        feed = valid_channels[
+            channel_id
+        ]
+
+        # Ha a playlistben van feed azonosító,
+        # ellenőrizzük azt is.
+        playlist_feed = get_attr(
+            info,
+            "tvg-feed"
+        )
+
+        if (
+            playlist_feed
+            and playlist_feed != feed.get("id")
+        ):
+            continue
+
+        name = channel.get(
+            "name",
+            channel_id
+        )
+
+        logo = logo_map.get(
+            channel_id,
+            ""
+        )
 
         result.append({
             "id": channel_id,
-            "name": channel.get(
-                "name",
-                channel_id
-            ),
-            "logo": logo_map.get(
-                channel_id,
-                ""
-            ),
-            "url": stream.get(
-                "url"
-            ),
-            "referrer": stream.get(
-                "referrer"
-            ),
-            "user_agent": stream.get(
-                "user_agent"
-            )
+            "name": name,
+            "logo": logo,
+            "url": url,
         })
 
+    # Egy csatorna csak egyszer szerepeljen.
+    unique = {}
+
+    for item in result:
+        if item["id"] not in unique:
+            unique[item["id"]] = item
+
+    result = list(
+        unique.values()
+    )
+
     result.sort(
-        key=lambda item:
-        item["name"].lower()
+        key=lambda x:
+        x["name"].lower()
     )
 
     output = [
@@ -325,7 +408,7 @@ def main():
 
     for item in result:
 
-        line = (
+        output.append(
             '#EXTINF:-1 '
             'tvg-country="HU" '
             'tvg-language="Hungarian" '
@@ -337,20 +420,6 @@ def main():
             '",' +
             item["name"]
         )
-
-        output.append(line)
-
-        if item["referrer"]:
-            output.append(
-                "#EXTVLCOPT:http-referrer="
-                + item["referrer"]
-            )
-
-        if item["user_agent"]:
-            output.append(
-                "#EXTVLCOPT:http-user-agent="
-                + item["user_agent"]
-            )
 
         output.append(
             item["url"]
@@ -367,7 +436,7 @@ def main():
     )
 
     print(
-        "magyar.m3u elkészült."
+        "magyar.m3u sikeresen elkészült."
     )
 
 
