@@ -6,127 +6,120 @@ import urllib.request
 from pathlib import Path
 
 SOURCE = "https://iptv-org.github.io/iptv/languages/hun.m3u"
-OUT = Path("magyar.m3u")
+OUTPUT = Path("magyar.m3u")
 
 
 # ============================================================
-# KIZÁRANDÓ REGIONÁLIS / HELYI CSATORNÁK
+# KIZÁRANDÓ HELYI / REGIONÁLIS CSATORNÁK
 # ============================================================
 
-REGIONAL_WORDS = [
+REGIONAL = [
+    "bábolnai",
+    "babolnai",
+    "bajai tv",
+    "balaton tv",
+    "berente tv",
+    "csurgó tv",
+    "csurgo tv",
+    "daru tv",
+    "egykertv",
+    "estv",
+    "fehérvár tv",
+    "fehervar tv",
+    "globo tv",
+    "gólya tv",
+    "golya tv",
+    "gyöngyösi tv",
+    "gyongyosi tv",
+    "hegyvidék tv",
+    "hegyvidek tv",
+    "hévíz tv",
+    "hev iz tv",
+    "kanizsa tv",
+    "kanizsa",
+    "kapos tv",
+    "kaposvár tv",
+    "kaposvar tv",
+    "karcag tv",
+    "kiskőrös tv",
+    "kiskoros tv",
+    "komáromi televízió",
+    "komaromi televizio",
+    "komló tv",
+    "komlo tv",
+    "mezőkövesdi televízió",
+    "mezokovesdi televizio",
+    "pilis tv",
+    "rákosmente tv",
+    "rakosmente tv",
+    "szentendre tv",
+    "tatai tv",
+    "telepaks",
+    "tisza tv",
+    "tv eger",
+    "tv keszthely",
+    "vásárhelyi televízió",
+    "vasarhelyi televizio",
+    "völgyhíd tv",
+    "volgyhid tv",
+    "fuzesabony",
+    "mór tv",
+    "mor tv",
     "városi tv",
     "varosi tv",
     "városi televízió",
     "varosi televizio",
-    "kerületi tv",
-    "keruleti tv",
-    "térségi tv",
-    "tersegi tv",
-    "regionális tv",
-    "regionalis tv",
+    "regionális",
+    "regionalis",
     "region tv",
     "régió tv",
     "regio tv",
-    "régióplusz",
-    "regioplusz",
+    "térségi tv",
+    "tersegi tv",
     "megyei tv",
     "megyei televízió",
-    "county tv",
+    "kerületi tv",
+    "keruleti tv",
     "local tv",
-    "local television",
 ]
 
 
-# Konkrét helyi/regionális csatornák azonosítói.
-# Ha az iptv-org később új néven adja őket, a fenti
-# regionális kifejezések is segítenek kiszűrni őket.
-
-REGIONAL_IDS = {
-    "BTV.hu@SD",
-    "BajaiTV.hu@SD",
-    "BalatonTV.hu@SD",
-    "BerenteTV.hu@SD",
-    "CsurgoTV.hu@SD",
-    "DaruTV.hu@SD",
-    "EgykerTV.hu@SD",
-    "ESTV.hu@SD",
-    "FehervarTV.hu@SD",
-    "GloboTV.hu@SD",
-    "GolyaTV.hu@SD",
-    "GyongyosiTV.hu@SD",
-    "HegyvidekTV.hu@SD",
-    "HeviziTV.hu@SD",
-    "JaszsagiTersegiTV.hu@SD",
-    "KanizsaTV.hu@SD",
-    "KaposTV.hu@SD",
-    "KarcagTV.hu@SD",
-    "KiskorosTV.hu@SD",
-    "KomaromiTelevizio.hu@SD",
-    "KomlosTV.hu@SD",
-    "MezokovesdiTelevizio.hu@SD",
-    "MoraNetTV.hu@SD",
-    "PilisTV.hu@SD",
-    "RakosmenteTV.hu@SD",
-    "RegioTV.sk@SD",
-    "RegioPluszTV.hu@SD",
-    "SzecsenyTV.hu@SD",
-    "TataiTV.hu@SD",
-    "TelePaks.hu@SD",
-    "TiszaTV.hu@SD",
-    "TrimedioTV.hu@SD",
-    "TVBudakalasz.hu@SD",
-    "TVEger.hu@SD",
-    "TVKeszthely.hu@SD",
-    "TVSzentendre.hu@SD",
-    "VasarhelyiTelevizio.hu@SD",
-    "VolgyhidTV.hu@SD",
-    "VTVFuzesabony.hu@SD",
-    "VTVMor.hu@SD",
-}
-
-
 # ============================================================
-# VALLÁSI / EGYHÁZI CSATORNÁK
+# KIZÁRANDÓ VALLÁSI CSATORNÁK
 # ============================================================
 
-RELIGIOUS_WORDS = [
+RELIGIOUS = [
     "vallás",
     "vallas",
-    "relig",
     "religious",
-    "christ",
     "christian",
+    "christ",
     "church",
     "gospel",
+    "katolikus",
     "katol",
     "catholic",
-    "reformát",
-    "reformat",
+    "református",
     "reformatus",
+    "reformát",
+    "evangélikus",
+    "evangelikus",
     "evangé",
-    "evange",
     "evangel",
     "biblia",
     "bible",
-    "prédik",
-    "predik",
     "istentisztelet",
-    "zsidó",
-    "zsido",
-    "jewish",
-    "muslim",
-    "islam",
-    "iszlám",
-    "iszlam",
+    "keresztény",
+    "kereszteny",
+    "hit gyülekezete",
 ]
 
 
 # ============================================================
-# RÁDIÓK
+# RÁDIÓK KIZÁRÁSA
 # ============================================================
 
-RADIO_WORDS = [
-    "radio",
+RADIO = [
     "rádió",
     "radio",
     "fm radio",
@@ -134,164 +127,34 @@ RADIO_WORDS = [
 
 
 # ============================================================
-# NEM KÍVÁNT TARTALOM
+# NEM KÍVÁNT CSATORNÁK
 # ============================================================
 
-EXCLUDED_WORDS = [
+OTHER_EXCLUDED = [
     "babyfirst",
     "bbc earth",
     "ebs",
-    "ebs plus",
-    "euronews",
 ]
 
 
-# ============================================================
-# NEM ORSZÁGOS / PARLAMENTI / ÖNKORMÁNYZATI
-# ============================================================
+def download_playlist():
 
-PUBLIC_LOCAL_WORDS = [
-    "országgyűlés",
-    "orszaggyules",
-    "plenáris",
-    "plenar",
-    "törvényalkotási bizottság",
-    "torvenyalkotasi bizottsag",
-    "önkormányzat",
-    "onkormanyzat",
-]
-
-
-def download(url):
     request = urllib.request.Request(
-        url,
+        SOURCE,
         headers={
             "User-Agent": "Mozilla/5.0"
         }
     )
 
     with urllib.request.urlopen(request, timeout=60) as response:
+
         return response.read().decode(
             "utf-8",
             errors="replace"
         )
 
 
-def extract_tvg_id(block):
-    match = re.search(
-        r'tvg-id="([^"]+)"',
-        block,
-        flags=re.IGNORECASE
-    )
-
-    if match:
-        return match.group(1)
-
-    return ""
-
-
-def extract_channel_name(block):
-    """
-    Az EXTINF sor vessző utáni részét használjuk
-    a csatorna nevének meghatározására.
-    """
-
-    for line in block.splitlines():
-
-        if line.startswith("#EXTINF"):
-
-            if "," in line:
-                return line.split(",", 1)[1].strip()
-
-    return ""
-
-
-def is_regional(block):
-
-    tvg_id = extract_tvg_id(block)
-
-    if tvg_id in REGIONAL_IDS:
-        return True
-
-    text = block.lower()
-
-    for word in REGIONAL_WORDS:
-
-        if word in text:
-            return True
-
-    return False
-
-
-def is_religious(block):
-
-    text = block.lower()
-
-    for word in RELIGIOUS_WORDS:
-
-        if word in text:
-            return True
-
-    return False
-
-
-def is_radio(block):
-
-    text = block.lower()
-
-    for word in RADIO_WORDS:
-
-        if word in text:
-            return True
-
-    return False
-
-
-def is_excluded(block):
-
-    text = block.lower()
-
-    for word in EXCLUDED_WORDS:
-
-        if word in text:
-            return True
-
-    return False
-
-
-def is_public_local(block):
-
-    text = block.lower()
-
-    for word in PUBLIC_LOCAL_WORDS:
-
-        if word in text:
-            return True
-
-    return False
-
-
-def is_allowed(block):
-
-    if is_regional(block):
-        return False
-
-    if is_religious(block):
-        return False
-
-    if is_radio(block):
-        return False
-
-    if is_excluded(block):
-        return False
-
-    if is_public_local(block):
-        return False
-
-    return True
-
-
-def parse_playlist(text):
+def get_channels(text):
 
     lines = text.splitlines()
 
@@ -318,56 +181,107 @@ def parse_playlist(text):
     return channels
 
 
-def channel_key(block):
+def get_name(channel):
 
-    tvg_id = extract_tvg_id(block)
+    for line in channel:
 
-    name = extract_channel_name(block).lower()
+        if line.startswith("#EXTINF"):
 
-    return tvg_id or name
+            if "," in line:
+
+                return line.split(",", 1)[1].strip()
+
+    return ""
+
+
+def get_id(channel):
+
+    for line in channel:
+
+        match = re.search(
+            r'tvg-id="([^"]+)"',
+            line,
+            re.IGNORECASE
+        )
+
+        if match:
+
+            return match.group(1)
+
+    return ""
+
+
+def should_remove(channel):
+
+    text = "\n".join(channel).lower()
+
+    name = get_name(channel).lower()
+
+    tvg_id = get_id(channel).lower()
+
+    combined = text + " " + name + " " + tvg_id
+
+    # Helyi / regionális
+    for word in REGIONAL:
+
+        if word in combined:
+
+            return True
+
+    # Vallási
+    for word in RELIGIOUS:
+
+        if word in combined:
+
+            return True
+
+    # Rádió
+    for word in RADIO:
+
+        if word in combined:
+
+            return True
+
+    # Egyéb kizárás
+    for word in OTHER_EXCLUDED:
+
+        if word in combined:
+
+            return True
+
+    return False
 
 
 def main():
 
-    print("Downloading:", SOURCE)
+    print("IPTV lista letöltése...")
 
-    source = download(SOURCE)
+    source = download_playlist()
 
-    channels = parse_playlist(source)
+    channels = get_channels(source)
 
-    print("Source channels:", len(channels))
+    print("Forrásban található csatornák:", len(channels))
 
-    output = []
+    result = []
 
     seen = set()
 
-    removed_regional = 0
-    removed_religious = 0
-    removed_radio = 0
-    removed_other = 0
+    removed = 0
     duplicates = 0
 
     for channel in channels:
 
-        block = "\n".join(channel)
+        if should_remove(channel):
 
-        if not is_allowed(block):
-
-            if is_regional(block):
-                removed_regional += 1
-
-            elif is_religious(block):
-                removed_religious += 1
-
-            elif is_radio(block):
-                removed_radio += 1
-
-            else:
-                removed_other += 1
+            removed += 1
 
             continue
 
-        key = channel_key(block)
+        name = get_name(channel)
+
+        tvg_id = get_id(channel)
+
+        key = tvg_id or name.lower()
 
         if key in seen:
 
@@ -377,37 +291,33 @@ def main():
 
         seen.add(key)
 
-        output.extend(channel)
+        result.extend(channel)
 
-    final_playlist = [
-        "#EXTM3U"
-    ]
+    playlist = ["#EXTM3U"]
 
-    final_playlist.extend(output)
+    playlist.extend(result)
 
-    OUT.write_text(
-        "\n".join(final_playlist) + "\n",
+    OUTPUT.write_text(
+        "\n".join(playlist) + "\n",
         encoding="utf-8"
     )
 
-    channel_count = sum(
+    final_count = sum(
         1
-        for line in final_playlist
+        for line in playlist
         if line.startswith("#EXTINF")
     )
 
     print("")
-    print("====================================")
-    print(" Hungarian IPTV playlist generated")
-    print("====================================")
-    print("Final channels:", channel_count)
-    print("Removed regional:", removed_regional)
-    print("Removed religious:", removed_religious)
-    print("Removed radio:", removed_radio)
-    print("Removed other:", removed_other)
-    print("Removed duplicates:", duplicates)
-    print("Output:", OUT)
-    print("====================================")
+    print("================================")
+    print(" MAGYAR IPTV LISTA ELKÉSZÜLT")
+    print("================================")
+    print("Eredeti:", len(channels))
+    print("Kiszűrve:", removed)
+    print("Duplikáció:", duplicates)
+    print("Végleges:", final_count)
+    print("Fájl:", OUTPUT)
+    print("================================")
 
 
 if __name__ == "__main__":
