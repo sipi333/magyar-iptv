@@ -1,61 +1,14 @@
-
+```python
 #!/usr/bin/env python3
 
 import re
 import urllib.request
 from pathlib import Path
+from unicodedata import normalize as unicode_normalize
+
 
 SOURCE = "https://iptv-org.github.io/iptv/languages/hun.m3u"
 OUTPUT = Path("magyar.m3u")
-
-# ============================================================
-# ENGEDÉLYEZETT MAGYAR / ORSZÁGOS CSATORNÁK
-# ============================================================
-
-ALLOWED = {
-    "M1",
-    "M2",
-    "M4 Sport",
-    "M5",
-    "Duna",
-    "Duna World",
-    "RTL",
-    "TV2",
-    "ATV",
-    "ATV Spirit",
-    "Hír TV",
-    "N1 TV",
-    "Euronews",
-    "Spektrum",
-    "Spektrum Home",
-    "National Geographic",
-    "National Geographic Wild",
-    "History",
-    "Film+",
-    "Film Cafe",
-    "Film4",
-    "Mozi+",
-    "Moziverzum",
-    "Izaura TV",
-    "Jocky TV",
-    "Cool",
-    "RTL Gold",
-    "RTL Kettő",
-    "Sorozat+",
-    "Viasat3",
-    "Viasat6",
-    "Life TV",
-    "FEM3",
-    "Galaxy4",
-    "Hatoscsatorna",
-    "Fix TV",
-    "Muzsika TV",
-    "Minimax",
-    "Nickelodeon",
-    "Nick Jr.",
-    "Nicktoons",
-    "Disney Channel",
-}
 
 
 # ============================================================
@@ -63,13 +16,17 @@ ALLOWED = {
 # ============================================================
 
 EXCLUDED = (
-    # helyi / regionális
+    # --------------------------------------------------------
+    # VÁROSI / HELYI / RÉGIÓS
+    # --------------------------------------------------------
     "városi",
     "varosi",
     "térségi",
     "tersegi",
     "regionális",
     "regionalis",
+    "régiós",
+    "regios",
     "régió",
     "regio",
     "megyei",
@@ -80,14 +37,20 @@ EXCLUDED = (
     "citytv",
     "local tv",
     "localtv",
+    "municipal",
+    "district tv",
 
-    # vallási
-    "vallás",
-    "vallas",
+    # --------------------------------------------------------
+    # VALLÁSI
+    # --------------------------------------------------------
     "vallási",
+    "vallas",
+    "vallás",
+    "vallásos",
     "vallasos",
     "religious",
     "christian",
+    "christian tv",
     "gospel",
     "church",
     "catholic",
@@ -98,8 +61,13 @@ EXCLUDED = (
     "evangelikus",
     "biblia",
     "bible",
+    "jesus",
+    "jézus",
+    "jezus",
 
-    # rádió
+    # --------------------------------------------------------
+    # RÁDIÓ
+    # --------------------------------------------------------
     "rádió",
     "radio",
 )
@@ -112,30 +80,18 @@ EXCLUDED = (
 def normalize(value):
     value = value.lower().strip()
 
-    replacements = {
-        "á": "a",
-        "é": "e",
-        "í": "i",
-        "ó": "o",
-        "ö": "o",
-        "ő": "o",
-        "ú": "u",
-        "ü": "u",
-        "ű": "u",
-    }
-
-    for old, new in replacements.items():
-        value = value.replace(old, new)
+    value = unicode_normalize("NFKD", value)
+    value = "".join(
+        char for char in value
+        if not (
+            0x300 <= ord(char) <= 0x36F
+        )
+    )
 
     value = re.sub(r"\s+", " ", value)
 
     return value.strip()
 
-
-ALLOWED_NORMALIZED = {
-    normalize(name)
-    for name in ALLOWED
-}
 
 EXCLUDED_NORMALIZED = tuple(
     normalize(word)
@@ -148,7 +104,6 @@ EXCLUDED_NORMALIZED = tuple(
 # ============================================================
 
 def download_playlist():
-
     request = urllib.request.Request(
         SOURCE,
         headers={
@@ -172,7 +127,6 @@ def download_playlist():
 # ============================================================
 
 def get_channels(text):
-
     channels = []
     current = []
 
@@ -198,18 +152,90 @@ def get_channels(text):
 
 
 # ============================================================
-# CSATORNANÉV KINYERÉSE
+# EXTINF SOR
+# ============================================================
+
+def get_extinf(channel):
+
+    for line in channel:
+
+        if line.startswith("#EXTINF"):
+
+            return line
+
+    return ""
+
+
+# ============================================================
+# CSATORNANÉV
 # ============================================================
 
 def get_name(channel):
 
-    for line in channel:
+    extinf = get_extinf(channel)
 
-        if line.startswith("#EXTINF") and "," in line:
+    if not extinf:
+        return ""
 
-            return line.split(",", 1)[1].strip()
+    if "," not in extinf:
+        return ""
+
+    return extinf.split(",", 1)[1].strip()
+
+
+# ============================================================
+# METAADATOK
+# ============================================================
+
+def get_attribute(extinf, attribute):
+
+    pattern = rf'{re.escape(attribute)}="([^"]*)"'
+
+    match = re.search(
+        pattern,
+        extinf,
+        flags=re.IGNORECASE
+    )
+
+    if match:
+        return match.group(1).strip()
 
     return ""
+
+
+def get_group(channel):
+
+    extinf = get_extinf(channel)
+
+    return get_attribute(
+        extinf,
+        "group-title"
+    )
+
+
+def get_categories(channel):
+
+    extinf = get_extinf(channel)
+
+    categories = []
+
+    value = get_attribute(
+        extinf,
+        "group-title"
+    )
+
+    if value:
+        categories.append(value)
+
+    value = get_attribute(
+        extinf,
+        "category"
+    )
+
+    if value:
+        categories.append(value)
+
+    return " ".join(categories)
 
 
 # ============================================================
@@ -220,7 +246,6 @@ def clean_name(name):
 
     name = normalize(name)
 
-    # Gyakori technikai jelölések eltávolítása
     suffix_pattern = (
         r"\s*"
         r"(1080p|720p|576p|480p|360p|"
@@ -236,7 +261,6 @@ def clean_name(name):
         flags=re.IGNORECASE
     )
 
-    # Záró kötőjelek / felesleges szóközök
     name = re.sub(
         r"\s*[-|]\s*$",
         "",
@@ -247,33 +271,132 @@ def clean_name(name):
 
 
 # ============================================================
-# ENGEDÉLYEZÉS
+# SZÖVEG ELLENŐRZÉSE
 # ============================================================
 
-def is_allowed(name):
+def contains_excluded(text):
 
-    normalized = normalize(name)
-
-    # ----------------------------------------
-    # KIZÁRT KIFEJEZÉSEK
-    # ----------------------------------------
+    normalized = normalize(text)
 
     for word in EXCLUDED_NORMALIZED:
 
         if word in normalized:
-            return False
+            return True
 
-    # ----------------------------------------
-    # CSATORNANÉV TISZTÍTÁSA
-    # ----------------------------------------
+    return False
 
-    cleaned = clean_name(name)
 
-    # ----------------------------------------
-    # CSAK PONTOS EGYEZÉS
-    # ----------------------------------------
+# ============================================================
+# RÉGIÓS / HELYI ELLENŐRZÉS
+# ============================================================
 
-    return cleaned in ALLOWED_NORMALIZED
+def is_local_or_regional(name, group):
+
+    text = f"{name} {group}"
+
+    if contains_excluded(text):
+        return True
+
+    normalized = normalize(text)
+
+    # Gyakori helyi/régiós TV elnevezések.
+    regional_patterns = (
+        r"\bmegye\b",
+        r"\bmegyei\b",
+        r"\btérség\b",
+        r"\btérségi\b",
+        r"\bregio\b",
+        r"\bregional\b",
+        r"\bregionális\b",
+        r"\bváros\b",
+        r"\bvárosi\b",
+        r"\bhelyi\b",
+        r"\blocal\b",
+        r"\bcity\s*tv\b",
+        r"\bkerület\b",
+        r"\bkerületi\b",
+    )
+
+    for pattern in regional_patterns:
+
+        if re.search(
+            pattern,
+            normalized,
+            flags=re.IGNORECASE
+        ):
+            return True
+
+    return False
+
+
+# ============================================================
+# VALLÁSI ELLENŐRZÉS
+# ============================================================
+
+def is_religious(name, group):
+
+    text = f"{name} {group}"
+
+    return contains_excluded(text)
+
+
+# ============================================================
+# RÁDIÓ ELLENŐRZÉS
+# ============================================================
+
+def is_radio(name, group):
+
+    text = f"{name} {group}"
+
+    normalized = normalize(text)
+
+    return (
+        "rádió" in text.lower()
+        or "radio" in normalized
+        or re.search(r"\bradio\b", normalized)
+        is not None
+    )
+
+
+# ============================================================
+# CSATORNA SZŰRÉSE
+# ============================================================
+
+def is_allowed(channel):
+
+    name = get_name(channel)
+
+    if not name:
+        return False, "nincs név"
+
+    group = get_group(channel)
+
+    # --------------------------------------------------------
+    # RÁDIÓ
+    # --------------------------------------------------------
+
+    if is_radio(name, group):
+        return False, "rádió"
+
+    # --------------------------------------------------------
+    # VALLÁSI
+    # --------------------------------------------------------
+
+    if is_religious(name, group):
+        return False, "vallási"
+
+    # --------------------------------------------------------
+    # VÁROSI / HELYI / RÉGIÓS
+    # --------------------------------------------------------
+
+    if is_local_or_regional(name, group):
+        return False, "helyi/régiós"
+
+    # --------------------------------------------------------
+    # MINDEN MÁS MAGYAR CSATORNA MEGMARAD
+    # --------------------------------------------------------
+
+    return True, "megtartva"
 
 
 # ============================================================
@@ -283,6 +406,7 @@ def is_allowed(name):
 def main():
 
     print("Magyar IPTV lista letöltése...")
+    print("Forrás:", SOURCE)
     print("")
 
     try:
@@ -291,10 +415,14 @@ def main():
 
     except Exception as error:
 
-        print("HIBA: nem sikerült letölteni a forráslistát.")
+        print(
+            "HIBA: nem sikerült letölteni "
+            "a forráslistát."
+        )
+
         print(error)
 
-        return
+        raise SystemExit(1)
 
     channels = get_channels(source)
 
@@ -303,11 +431,17 @@ def main():
         len(channels)
     )
 
-    result = ["#EXTM3U"]
+    result = [
+        "#EXTM3U"
+    ]
 
     kept = 0
     removed = 0
     duplicates = 0
+
+    removed_radio = 0
+    removed_religious = 0
+    removed_regional = 0
 
     seen = set()
 
@@ -320,18 +454,28 @@ def main():
             removed += 1
             continue
 
-        # ------------------------------------
-        # SZŰRÉS
-        # ------------------------------------
+        allowed, reason = is_allowed(
+            channel
+        )
 
-        if not is_allowed(name):
+        if not allowed:
 
             removed += 1
+
+            if reason == "rádió":
+                removed_radio += 1
+
+            elif reason == "vallási":
+                removed_religious += 1
+
+            elif reason == "helyi/régiós":
+                removed_regional += 1
+
             continue
 
-        # ------------------------------------
+        # ----------------------------------------------------
         # DUPLIKÁCIÓ
-        # ------------------------------------
+        # ----------------------------------------------------
 
         key = clean_name(name)
 
@@ -346,32 +490,67 @@ def main():
 
         kept += 1
 
-    # ----------------------------------------
-    # FÁJL MENTÉSE
-    # ----------------------------------------
+    # ========================================================
+    # MENTÉS
+    # ========================================================
 
     OUTPUT.write_text(
         "\n".join(result) + "\n",
         encoding="utf-8"
     )
 
-    # ----------------------------------------
+    # ========================================================
     # EREDMÉNY
-    # ----------------------------------------
+    # ========================================================
 
     print("")
     print("==============================")
     print(" MAGYAR IPTV")
     print("==============================")
-    print("Forrás:", len(channels))
-    print("Benne maradt:", kept)
-    print("Kiszűrve:", removed)
-    print("Duplikátum:", duplicates)
+
+    print(
+        "Forrás:",
+        len(channels)
+    )
+
+    print(
+        "Benne maradt:",
+        kept
+    )
+
+    print(
+        "Kiszűrve:",
+        removed
+    )
+
+    print(
+        " - rádió:",
+        removed_radio
+    )
+
+    print(
+        " - vallási:",
+        removed_religious
+    )
+
+    print(
+        " - helyi/régiós:",
+        removed_regional
+    )
+
+    print(
+        "Duplikátum:",
+        duplicates
+    )
+
     print("==============================")
     print("")
-    print("Készült:", OUTPUT)
+    print(
+        "Készült:",
+        OUTPUT
+    )
 
 
 if __name__ == "__main__":
     main()
-
+```
