@@ -5,95 +5,77 @@ from pathlib import Path
 SOURCE = "https://iptv-org.github.io/iptv/countries/hu.m3u"
 OUTPUT = Path("magyar.m3u")
 
-# Egyértelműen kizárt témák és helyi TV megnevezések.
-EXCLUDE = [
-    "radio",
-    "rádió",
-    "religious",
-    "vallási",
-    "christian",
-    "gospel",
-    "catholic",
-    "katolikus",
-    "református",
-    "reformatus",
-    "evangélikus",
-    "evangelikus",
-    "biblia",
-    "bible",
-    "helyi tv",
-    "helyi televízió",
-    "helyi televizio",
-    "városi tv",
-    "varosi tv",
-    "városi televízió",
-    "varosi televizio",
-    "regionális tv",
-    "regionalis tv",
-    "régiós tv",
-    "regios tv",
-    "térségi tv",
-    "tersegi tv",
-    "megyei tv",
-    "megye tv",
-    "kerületi tv",
-    "keruleti tv",
-    "önkormányzati tv",
-    "onkormanyzati tv",
-    "local tv",
-    "localtv",
-    "city tv",
-    "citytv",
-    "municipal tv",
-    "community tv",
-    "országgyűlés",
-    "orszaggyules",
-    "ogy plenáris",
-    "ogy plenaris",
-    "ogy tab"
-]
+# Csak ezekből a csatornákból készülhet a lista.
+# Így a helyi és városi TV-k automatikusan kimaradnak.
+
+ALLOWED = {
+    "ATV.hu",
+    "ATVSpirit.hu",
+    "DikhTV.hu",
+    "DisneyChannel.hu",
+    "Duna.hu",
+    "FEM3.hu",
+    "FilmCafe.hu",
+    "FilmPlus.hu",
+    "Film4.hu",
+    "FIXTV.hu",
+    "Galaxy4.hu",
+    "Hatoscsatorna.hu",
+    "History.hu",
+    "IzauraTV.hu",
+    "JimJam.hu",
+    "JockyTV.hu",
+    "Kolyokklub.hu",
+    "LifeTV.hu",
+    "M1.hu",
+    "M2.hu",
+    "M4Sport.hu",
+    "M5.hu",
+    "MagyarMoziTV.hu",
+    "Minimax.hu",
+    "MoziPlus.hu",
+    "Moziklub.hu",
+    "Moziverzum.hu",
+    "MuzsikaTV.hu",
+    "NationalGeographic.hu",
+    "NationalGeographicWild.hu",
+    "NickJr.hu",
+    "Nickelodeon.hu",
+    "Nicktoons.hu",
+    "OzoneTV.hu",
+    "Prime.hu",
+    "RTLGold.hu",
+    "Spektrum.hu",
+    "SuperTV2.hu",
+    "TV2.hu",
+    "TV4.hu",
+    "Viasat3.hu",
+    "Viasat6.hu",
+    "ViasatFilm.hu"
+}
 
 
-def normalize(text):
-    text = str(text or "").lower()
-
-    replacements = {
-        "á": "a",
-        "é": "e",
-        "í": "i",
-        "ó": "o",
-        "ö": "o",
-        "ő": "o",
-        "ú": "u",
-        "ü": "u",
-        "ű": "u"
-    }
-
-    for old, new in replacements.items():
-        text = text.replace(old, new)
-
-    return re.sub(r"\s+", " ", text).strip()
-
-
-def main():
-
-    print("Magyar IPTV lista letöltése...")
-
+def download():
     request = urllib.request.Request(
         SOURCE,
-        headers={
-            "User-Agent": "Mozilla/5.0"
-        }
+        headers={"User-Agent": "Mozilla/5.0"}
     )
 
     with urllib.request.urlopen(
         request,
         timeout=120
     ) as response:
-        data = response.read().decode(
+        return response.read().decode(
             "utf-8",
             "replace"
         )
+
+
+def main():
+
+    print("IPTV-org lista letöltése...")
+
+    data = download()
 
     blocks = re.split(
         r"(?=#EXTINF)",
@@ -110,78 +92,59 @@ def main():
         if not block.startswith("#EXTINF"):
             continue
 
-        lines = block.splitlines()
+        first = block.splitlines()[0]
 
-        if not lines:
-            continue
-
-        extinf = lines[0]
-
-        if "," not in extinf:
-            continue
-
-        name = extinf.split(
-            ",",
-            1
-        )[1].strip()
-
-        search_text = normalize(
-            block
+        match = re.search(
+            r'tvg-id="([^"]+)"',
+            first
         )
 
-        excluded = False
-
-        for word in EXCLUDE:
-
-            if normalize(word) in search_text:
-                excluded = True
-                break
-
-        if excluded:
+        if not match:
             continue
 
-        key = normalize(name)
+        channel_id = match.group(1)
 
-        if key in seen:
+        if channel_id not in ALLOWED:
             continue
 
-        seen.add(key)
+        if channel_id in seen:
+            continue
+
+        seen.add(channel_id)
         result.append(block)
 
-    def channel_name(block):
+    def name(block):
         line = block.splitlines()[0]
 
         if "," in line:
-            return normalize(
-                line.split(",", 1)[1]
-            )
+            return line.split(",", 1)[1].lower()
 
         return ""
 
     result.sort(
-        key=channel_name
+        key=name
     )
 
-    lines = [
+    output = [
         "#EXTM3U",
-        "# Magyar nyelvű magyar TV csatornák",
-        "# Vallási és helyi csatornák nélkül"
+        "# Magyar nyelvű országos TV csatornák",
+        "# Helyi, városi, regionális és vallási csatornák nélkül"
     ]
 
-    lines.extend(result)
+    output.extend(result)
 
     OUTPUT.write_text(
-        "\n\n".join(lines) + "\n",
+        "\n\n".join(output) + "\n",
         encoding="utf-8"
     )
 
     print(
-        "Forrás csatornák:",
+        "Forrás bejegyzések:",
         len(blocks)
     )
 
     print(
-        "Megmaradt csatornák:",
+        "Engedélyezett csatornák:",
         len(result)
     )
 
