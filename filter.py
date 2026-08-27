@@ -1,4 +1,5 @@
 import json
+import re
 import urllib.request
 from pathlib import Path
 
@@ -19,10 +20,59 @@ OUTPUT = Path("magyar.m3u")
 HUNGARY = "HU"
 HUNGARIAN = "hun"
 
-# Vallási kategória kizárása
+
+# ============================================================
+# KIZÁRANDÓ KATEGÓRIÁK
+# ============================================================
+
 EXCLUDED_CATEGORIES = {
     "religious",
 }
+
+
+# ============================================================
+# HELYI / VÁROSI / REGIONÁLIS NÉVJELZÉSEK
+#
+# Nem városneveket sorolunk fel, hanem azokat a kifejezéseket
+# keressük, amelyekből általában felismerhető egy helyi TV.
+# ============================================================
+
+LOCAL_NAME_PATTERNS = [
+    r"\bv[aá]rosi\s+tv\b",
+    r"\bv[aá]rosi\s+telev[ií]zi[oó]\b",
+    r"\bv[aá]rosi\s+telev[ií]zi[oó]ja\b",
+
+    r"\bregion[aá]lis\s+tv\b",
+    r"\bregion[aá]lis\s+telev[ií]zi[oó]\b",
+
+    r"\br[eé]gi[oó]s\s+tv\b",
+    r"\br[eé]gi[oó]s\s+telev[ií]zi[oó]\b",
+
+    r"\bt[eé]rs[eé]gi\s+tv\b",
+    r"\bt[eé]rs[eé]gi\s+telev[ií]zi[oó]\b",
+
+    r"\bhelyi\s+tv\b",
+    r"\bhelyi\s+telev[ií]zi[oó]\b",
+
+    r"\bker[uü]leti\s+tv\b",
+    r"\bker[uü]leti\s+telev[ií]zi[oó]\b",
+
+    r"\b[oö]nkorm[aá]nyzati\s+tv\b",
+    r"\b[oö]nkorm[aá]nyzati\s+telev[ií]zi[oó]\b",
+
+    r"\bcommunity\s+tv\b",
+    r"\blocal\s+tv\b",
+]
+
+
+# Néhány tipikus helyi csatorna-formátum.
+# Ezek nem városlista helyett szolgálnak, hanem biztonsági
+# szűrőként az olyan nevekre, amelyek egyértelműen helyi adók.
+
+LOCAL_SUFFIX_PATTERNS = [
+    r"\bTV\s+\w+$",
+    r"\bVTV\b",
+]
 
 
 # ============================================================
@@ -35,44 +85,44 @@ def download_json(url):
     request = urllib.request.Request(
         url,
         headers={
-            "User-Agent": "sipi333-magyar-iptv/1.0"
+            "User-Agent": "sipi333-magyar-iptv/2.0"
         }
     )
 
-    with urllib.request.urlopen(request, timeout=120) as response:
+    with urllib.request.urlopen(
+        request,
+        timeout=120
+    ) as response:
         return json.load(response)
 
 
-def clean_text(value):
+def text(value):
     if value is None:
         return ""
 
     return str(value).strip()
 
 
+def normalize(value):
+    return text(value).casefold()
+
+
 def quality_value(value):
     """
-    Stream minőségből számot készít.
-
-    Példák:
-        1080p -> 1080
-        720p  -> 720
-        576i  -> 576
-        480p  -> 480
-        None  -> 0
-        ""    -> 0
+    1080p -> 1080
+    720p  -> 720
+    576i  -> 576
+    None  -> 0
     """
 
     if not value:
         return 0
 
-    text = str(value)
-
-    digits = ""
-
-    for character in text:
-        if character.isdigit():
-            digits += character
+    digits = "".join(
+        character
+        for character in str(value)
+        if character.isdigit()
+    )
 
     if not digits:
         return 0
@@ -83,40 +133,102 @@ def quality_value(value):
         return 0
 
 
-def is_religious(channel):
-    """
-    Vallási csatornák kizárása.
-    """
+# ============================================================
+# VALLÁSI SZŰRÉS
+# ============================================================
 
+def is_religious(channel):
     categories = {
-        clean_text(category).lower()
-        for category in channel.get("categories", [])
+        normalize(category)
+        for category in channel.get(
+            "categories",
+            []
+        )
     }
 
     return bool(
-        categories.intersection(EXCLUDED_CATEGORIES)
+        categories.intersection(
+            EXCLUDED_CATEGORIES
+        )
     )
 
 
-def is_national_hungarian_feed(feed, channel):
-    """
-    Csak magyar nyelvű, magyarországi, országos feed.
+# ============================================================
+# HELYI / VÁROSI NÉVSZŰRÉS
+# ============================================================
 
-    c/HU = országos Magyarország
-    r/   = régió
-    s/   = megye / subdivision
-    ct/  = város
+def looks_like_local_channel(channel, feed):
     """
+    Biztonsági szűrő az egyértelműen helyi/városi/
+    regionális csatornanevekre.
+
+    Nem konkrét városlistát használunk.
+    """
+
+    names = []
+
+    names.append(
+        text(channel.get("name"))
+    )
+
+    names.extend(
+        text(x)
+        for x in channel.get(
+            "alt_names",
+            []
+        )
+    )
+
+    names.append(
+        text(feed.get("name"))
+    )
+
+    names.extend(
+        text(x)
+        for x in feed.get(
+            "alt_names",
+            []
+        )
+    )
+
+    for original_name in names:
+
+        if not original_name:
+            continue
+
+        name = normalize(original_name)
+
+        # Egyértelmű helyi megnevezések
+        for pattern in LOCAL_NAME_PATTERNS:
+
+            if re.search(
+                pattern,
+                name,
+                flags=re.IGNORECASE
+            ):
+                return True
+
+    return False
+
+
+# ============================================================
+# FEED SZŰRÉSE
+# ============================================================
+
+def is_valid_feed(feed, channel):
 
     # --------------------------------------------------------
-    # Magyarországhoz tartozó csatorna
+    # Magyarország
     # --------------------------------------------------------
 
-    if clean_text(channel.get("country")).upper() != HUNGARY:
+    if normalize(
+        channel.get("country")
+    ).upper() != HUNGARY:
+
         return False
 
     # --------------------------------------------------------
-    # Vallási csatorna kizárása
+    # Vallási csatorna
     # --------------------------------------------------------
 
     if is_religious(channel):
@@ -127,28 +239,36 @@ def is_national_hungarian_feed(feed, channel):
     # --------------------------------------------------------
 
     languages = {
-        clean_text(language).lower()
-        for language in feed.get("languages", [])
+        normalize(language)
+        for language in feed.get(
+            "languages",
+            []
+        )
     }
 
     if HUNGARIAN not in languages:
         return False
 
     # --------------------------------------------------------
-    # Sugárzási terület
+    # Broadcast area
     # --------------------------------------------------------
 
     areas = {
-        clean_text(area).lower()
-        for area in feed.get("broadcast_area", [])
+        normalize(area)
+        for area in feed.get(
+            "broadcast_area",
+            []
+        )
     }
 
-    # Csak országos Magyarország
+    # Magyarország országos feedje
     if "c/hu" not in areas:
         return False
 
-    # Ha regionális / megyei / városi terület is szerepel,
-    # a feedet kizárjuk.
+    # Ha ugyanaz a feed regionális,
+    # megyei vagy városi területet is megjelöl,
+    # kizárjuk.
+
     for area in areas:
 
         if area.startswith("r/"):
@@ -160,137 +280,307 @@ def is_national_hungarian_feed(feed, channel):
         if area.startswith("ct/"):
             return False
 
+    # --------------------------------------------------------
+    # Helyi/városi név alapján extra védelem
+    # --------------------------------------------------------
+
+    if looks_like_local_channel(
+        channel,
+        feed
+    ):
+        return False
+
     return True
 
 
-def choose_logo(logos, channel_id, feed_id):
-    """
-    Megpróbálja kiválasztani a megfelelő csatornalogót.
-    """
+# ============================================================
+# LOGÓ
+# ============================================================
 
-    # 1. Feedhez tartozó, használatban lévő logó
+def choose_logo(
+    logos,
+    channel_id,
+    feed_id
+):
+
+    # Feedhez tartozó használatban lévő logó
     for logo in logos:
 
         if (
-            logo.get("channel") == channel_id
-            and logo.get("feed") == feed_id
-            and logo.get("in_use") is True
+            logo.get("channel")
+            == channel_id
+            and logo.get("feed")
+            == feed_id
+            and logo.get("in_use")
+            is True
         ):
-            return clean_text(logo.get("url"))
+            return text(
+                logo.get("url")
+            )
 
-    # 2. Feedhez tartozó bármilyen logó
+    # Feedhez tartozó bármilyen logó
     for logo in logos:
 
         if (
-            logo.get("channel") == channel_id
-            and logo.get("feed") == feed_id
+            logo.get("channel")
+            == channel_id
+            and logo.get("feed")
+            == feed_id
         ):
-            return clean_text(logo.get("url"))
+            return text(
+                logo.get("url")
+            )
 
-    # 3. Általános, használatban lévő csatornalogó
+    # Általános használatban lévő logó
     for logo in logos:
 
         if (
-            logo.get("channel") == channel_id
+            logo.get("channel")
+            == channel_id
             and not logo.get("feed")
-            and logo.get("in_use") is True
+            and logo.get("in_use")
+            is True
         ):
-            return clean_text(logo.get("url"))
+            return text(
+                logo.get("url")
+            )
 
-    # 4. Bármilyen általános csatornalogó
+    # Általános logó
     for logo in logos:
 
         if (
-            logo.get("channel") == channel_id
+            logo.get("channel")
+            == channel_id
             and not logo.get("feed")
         ):
-            return clean_text(logo.get("url"))
+            return text(
+                logo.get("url")
+            )
 
     return ""
 
 
-def escape_m3u(value):
-    """
-    M3U attribútumokhoz biztonságosabb szöveg.
-    """
+# ============================================================
+# M3U ESCAPE
+# ============================================================
 
-    return clean_text(value).replace('"', "'")
+def escape_m3u(value):
+
+    return text(value).replace(
+        '"',
+        "'"
+    )
 
 
 # ============================================================
-# FŐ PROGRAM
+# FŐPROGRAM
 # ============================================================
 
 def main():
 
     print("")
     print("==============================================")
-    print(" Magyar IPTV playlist generátor")
+    print(" Magyar IPTV szűrő")
     print("==============================================")
     print("")
 
     # --------------------------------------------------------
-    # ADATOK LETÖLTÉSE
+    # API ADATOK
     # --------------------------------------------------------
 
-    channels = download_json(CHANNELS_URL)
-    feeds = download_json(FEEDS_URL)
-    streams = download_json(STREAMS_URL)
-    logos = download_json(LOGOS_URL)
+    channels = download_json(
+        CHANNELS_URL
+    )
+
+    feeds = download_json(
+        FEEDS_URL
+    )
+
+    streams = download_json(
+        STREAMS_URL
+    )
+
+    logos = download_json(
+        LOGOS_URL
+    )
 
     print("")
-    print(f"Csatornák az API-ban: {len(channels)}")
-    print(f"Feedek az API-ban:    {len(feeds)}")
-    print(f"Streamek az API-ban:  {len(streams)}")
-    print(f"Logók az API-ban:     {len(logos)}")
+    print(
+        f"Csatornák: {len(channels)}"
+    )
+    print(
+        f"Feedek:    {len(feeds)}"
+    )
+    print(
+        f"Streamek:  {len(streams)}"
+    )
+    print(
+        f"Logók:     {len(logos)}"
+    )
     print("")
 
     # --------------------------------------------------------
-    # CSATORNÁK INDEXELÉSE
+    # CSATORNA INDEX
     # --------------------------------------------------------
 
     channels_by_id = {
-        channel.get("id"): channel
+        channel["id"]: channel
         for channel in channels
         if channel.get("id")
     }
 
     # --------------------------------------------------------
-    # VALLÁSI ÉS NEM KÍVÁNT FEED SZŰRÉSE
+    # VALID FEED
     # --------------------------------------------------------
 
     valid_feeds = []
 
+    rejected_religious = 0
+    rejected_local = 0
+    rejected_area = 0
+    rejected_language = 0
+
     for feed in feeds:
 
-        channel_id = feed.get("channel")
+        channel_id = feed.get(
+            "channel"
+        )
 
         if not channel_id:
             continue
 
-        channel = channels_by_id.get(channel_id)
+        channel = channels_by_id.get(
+            channel_id
+        )
 
         if not channel:
             continue
 
-        if not is_national_hungarian_feed(
-            feed,
-            channel
-        ):
+        # ----------------------------------------------------
+        # Magyarország
+        # ----------------------------------------------------
+
+        if normalize(
+            channel.get("country")
+        ).upper() != HUNGARY:
+
             continue
 
-        valid_feeds.append(feed)
+        # ----------------------------------------------------
+        # Vallási
+        # ----------------------------------------------------
+
+        if is_religious(channel):
+
+            rejected_religious += 1
+            continue
+
+        # ----------------------------------------------------
+        # Magyar nyelv
+        # ----------------------------------------------------
+
+        languages = {
+            normalize(language)
+            for language in feed.get(
+                "languages",
+                []
+            )
+        }
+
+        if HUNGARIAN not in languages:
+
+            rejected_language += 1
+            continue
+
+        # ----------------------------------------------------
+        # Broadcast area
+        # ----------------------------------------------------
+
+        areas = {
+            normalize(area)
+            for area in feed.get(
+                "broadcast_area",
+                []
+            )
+        }
+
+        if "c/hu" not in areas:
+
+            rejected_area += 1
+            continue
+
+        is_local_area = False
+
+        for area in areas:
+
+            if area.startswith("r/"):
+                is_local_area = True
+
+            elif area.startswith("s/"):
+                is_local_area = True
+
+            elif area.startswith("ct/"):
+                is_local_area = True
+
+        if is_local_area:
+
+            rejected_area += 1
+            continue
+
+        # ----------------------------------------------------
+        # Név alapú helyi szűrés
+        # ----------------------------------------------------
+
+        if looks_like_local_channel(
+            channel,
+            feed
+        ):
+
+            rejected_local += 1
+            continue
+
+        valid_feeds.append(
+            feed
+        )
 
     print(
-        "Magyar, országos, nem vallási feedek: "
+        "----------------------------------------------"
+    )
+
+    print(
+        "Kizárt vallási feedek: "
+        f"{rejected_religious}"
+    )
+
+    print(
+        "Kizárt területi feedek: "
+        f"{rejected_area}"
+    )
+
+    print(
+        "Kizárt helyi név alapján: "
+        f"{rejected_local}"
+    )
+
+    print(
+        "Kizárt nem magyar nyelv: "
+        f"{rejected_language}"
+    )
+
+    print(
+        "----------------------------------------------"
+    )
+
+    print(
+        "Érvényes feedek: "
         f"{len(valid_feeds)}"
     )
 
     # --------------------------------------------------------
-    # ÉRVÉNYES FEED AZONOSÍTÓK
+    # ÉRVÉNYES FEED KULCSOK
     # --------------------------------------------------------
 
-    valid_feed_keys = {
+    valid_keys = {
         (
             feed.get("channel"),
             feed.get("id")
@@ -299,16 +589,24 @@ def main():
     }
 
     # --------------------------------------------------------
-    # STREAMEK CSOPORTOSÍTÁSA
+    # STREAMEK
     # --------------------------------------------------------
 
     streams_by_feed = {}
 
     for stream in streams:
 
-        channel_id = stream.get("channel")
-        feed_id = stream.get("feed")
-        url = stream.get("url")
+        channel_id = stream.get(
+            "channel"
+        )
+
+        feed_id = stream.get(
+            "feed"
+        )
+
+        url = text(
+            stream.get("url")
+        )
 
         if not url:
             continue
@@ -318,18 +616,15 @@ def main():
             feed_id
         )
 
-        if key not in valid_feed_keys:
+        if key not in valid_keys:
             continue
 
-        if key not in streams_by_feed:
-            streams_by_feed[key] = []
-
-        streams_by_feed[key].append(stream)
-
-    print(
-        "Érvényes feedekhez tartozó stream-csoportok: "
-        f"{len(streams_by_feed)}"
-    )
+        streams_by_feed.setdefault(
+            key,
+            []
+        ).append(
+            stream
+        )
 
     # --------------------------------------------------------
     # PLAYLIST BEJEGYZÉSEK
@@ -339,10 +634,17 @@ def main():
 
     for feed in valid_feeds:
 
-        channel_id = feed.get("channel")
-        feed_id = feed.get("id")
+        channel_id = feed.get(
+            "channel"
+        )
 
-        channel = channels_by_id.get(channel_id)
+        feed_id = feed.get(
+            "id"
+        )
+
+        channel = channels_by_id.get(
+            channel_id
+        )
 
         if not channel:
             continue
@@ -352,49 +654,61 @@ def main():
             feed_id
         )
 
-        available_streams = streams_by_feed.get(
+        available = streams_by_feed.get(
             key,
             []
         )
 
-        if not available_streams:
+        if not available:
             continue
 
         # ----------------------------------------------------
-        # STREAM KIVÁLASZTÁSA
+        # STREAM KIVÁLASZTÁS
         # ----------------------------------------------------
 
-        # Először azokat részesítjük előnyben,
-        # amelyeknél nincs problémajelző label.
-        #
-        # Második szempont:
-        # magasabb felbontás.
+        def stream_sort_key(stream):
 
-        available_streams.sort(
-            key=lambda stream: (
-                bool(stream.get("label")),
-                -quality_value(
-                    stream.get("quality")
-                )
+            label = text(
+                stream.get("label")
             )
+
+            # A geo-blocked / problémás stream
+            # hátrébb kerül.
+            has_label = bool(
+                label
+            )
+
+            quality = quality_value(
+                stream.get("quality")
+            )
+
+            return (
+                has_label,
+                -quality
+            )
+
+        available.sort(
+            key=stream_sort_key
         )
 
-        stream = available_streams[0]
+        stream = available[0]
 
         # ----------------------------------------------------
         # NÉV
         # ----------------------------------------------------
 
-        name = clean_text(
+        name = text(
             channel.get("name")
         )
 
         if not name:
-            name = clean_text(
+
+            name = text(
                 feed.get("name")
             )
 
         if not name:
+
             name = channel_id
 
         # ----------------------------------------------------
@@ -407,50 +721,49 @@ def main():
             feed_id
         )
 
-        # ----------------------------------------------------
-        # BEJEGYZÉS
-        # ----------------------------------------------------
-
         entries.append({
             "channel_id": channel_id,
             "feed_id": feed_id,
             "name": name,
             "logo": logo,
-            "url": clean_text(
+            "url": text(
                 stream.get("url")
             ),
-            "referrer": clean_text(
+            "referrer": text(
                 stream.get("referrer")
             ),
-            "user_agent": clean_text(
+            "user_agent": text(
                 stream.get("user_agent")
             ),
-            "quality": clean_text(
+            "quality": text(
                 stream.get("quality")
             ),
         })
 
     # --------------------------------------------------------
-    # DUPLIKÁCIÓK KISZŰRÉSE
+    # DUPLIKÁCIÓ
     # --------------------------------------------------------
 
-    unique_entries = {}
+    unique = {}
 
     for entry in entries:
 
-        channel_id = entry["channel_id"]
+        channel_id = entry[
+            "channel_id"
+        ]
 
-        if channel_id not in unique_entries:
-            unique_entries[channel_id] = entry
+        if channel_id not in unique:
+
+            unique[channel_id] = entry
+
             continue
 
-        # Ha már van bejegyzés, csak akkor cseréljük,
-        # ha az új stream jobb minőségű.
-
-        old_entry = unique_entries[channel_id]
+        old = unique[
+            channel_id
+        ]
 
         old_quality = quality_value(
-            old_entry.get("quality")
+            old.get("quality")
         )
 
         new_quality = quality_value(
@@ -458,10 +771,13 @@ def main():
         )
 
         if new_quality > old_quality:
-            unique_entries[channel_id] = entry
+
+            unique[
+                channel_id
+            ] = entry
 
     entries = list(
-        unique_entries.values()
+        unique.values()
     )
 
     # --------------------------------------------------------
@@ -469,34 +785,37 @@ def main():
     # --------------------------------------------------------
 
     entries.sort(
-        key=lambda entry:
-        entry["name"].casefold()
+        key=lambda x:
+        x["name"].casefold()
+    )
+
+    print("")
+    print(
+        "=============================================="
     )
 
     print(
-        "Végleges csatornák száma: "
+        "VÉGLEGES CSATORNÁK: "
         f"{len(entries)}"
     )
 
+    print(
+        "=============================================="
+    )
+
     # --------------------------------------------------------
-    # M3U LÉTREHOZÁSA
+    # M3U
     # --------------------------------------------------------
 
-    lines = []
-
-    lines.append(
-        "#EXTM3U"
-    )
-
-    lines.append(
-        "# Magyar nyelvű országos TV csatornák"
-    )
-
-    lines.append(
-        "# Vallási, regionális, megyei és városi csatornák kizárva"
-    )
-
-    lines.append("")
+    lines = [
+        "#EXTM3U",
+        "#",
+        "# Magyar nyelvű országos TV csatornák",
+        "# Vallási, regionális, megyei és városi TV-k kizárva",
+        "# Automatikusan generálva az iptv-org API alapján",
+        "#",
+        ""
+    ]
 
     for entry in entries:
 
@@ -521,31 +840,28 @@ def main():
             f'{name}'
         )
 
-        # Referer
-        if entry.get("referrer"):
-
-            referrer = escape_m3u(
-                entry["referrer"]
-            )
+        if entry.get(
+            "referrer"
+        ):
 
             lines.append(
-                '#EXTVLCOPT:http-referrer='
-                f'{referrer}'
+                "#EXTVLCOPT:http-referrer="
+                + escape_m3u(
+                    entry["referrer"]
+                )
             )
 
-        # User-Agent
-        if entry.get("user_agent"):
-
-            user_agent = escape_m3u(
-                entry["user_agent"]
-            )
+        if entry.get(
+            "user_agent"
+        ):
 
             lines.append(
-                '#EXTVLCOPT:http-user-agent='
-                f'{user_agent}'
+                "#EXTVLCOPT:http-user-agent="
+                + escape_m3u(
+                    entry["user_agent"]
+                )
             )
 
-        # Stream URL
         lines.append(
             entry["url"]
         )
@@ -553,7 +869,7 @@ def main():
         lines.append("")
 
     # --------------------------------------------------------
-    # FÁJL MENTÉSE
+    # MENTÉS
     # --------------------------------------------------------
 
     OUTPUT.write_text(
@@ -562,16 +878,18 @@ def main():
     )
 
     print("")
-    print("==============================================")
-    print(" KÉSZ")
-    print("==============================================")
     print(
-        f"Playlist: {OUTPUT}"
+        "Playlist elkészült:"
     )
+
     print(
-        f"Csatornák: {len(entries)}"
+        OUTPUT
     )
+
     print("")
+    print(
+        "Automatikus frissítésre kész."
+    )
 
 
 if __name__ == "__main__":
