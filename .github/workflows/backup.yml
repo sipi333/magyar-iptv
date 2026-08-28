@@ -15,6 +15,8 @@ jobs:
     steps:
       - name: Repository letöltése
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Backup M3U létrehozása
         run: |
@@ -39,8 +41,15 @@ jobs:
                   url,
                   headers={"User-Agent": "Mozilla/5.0"}
               )
-              with urllib.request.urlopen(request, timeout=180) as response:
-                  return response.read().decode("utf-8", errors="replace")
+
+              with urllib.request.urlopen(
+                  request,
+                  timeout=180
+              ) as response:
+                  return response.read().decode(
+                      "utf-8",
+                      errors="replace"
+                  )
 
           def parse_m3u(text):
               lines = text.splitlines()
@@ -67,12 +76,15 @@ jobs:
 
               return result
 
+          print("Magyar lista letöltése...")
           hu_entries = parse_m3u(download(HU_URL))
+
+          print("Sport lista letöltése...")
           sport_entries = parse_m3u(download(SPORTS_URL))
 
           output = ["#EXTM3U"]
 
-          # TELJES MAGYAR IPTV-ORG LISTA, SZŰRÉS NÉLKÜL
+          # TELJES MAGYAR LISTA, SZŰRÉS NÉLKÜL
           for info, url in hu_entries:
               output.append(info)
               output.append(url)
@@ -94,23 +106,44 @@ jobs:
                       output.append(url)
                       added.add(key)
 
-          with open("backup.m3u", "w", encoding="utf-8") as file:
-              file.write("\n".join(output) + "\n")
+          with open(
+              "backup.m3u",
+              "w",
+              encoding="utf-8"
+          ) as file:
+              file.write(
+                  "\n".join(output) + "\n"
+              )
 
+          print()
+          print("================================")
           print("Magyar csatornák:", len(hu_entries))
-          print("Kiválasztott sportcsatornák:", len(added))
+          print(
+              "Kiválasztott sportcsatornák:",
+              len(added)
+          )
+          print(
+              "Összes M3U sor:",
+              len(output)
+          )
           print("Backup elkészült.")
+          print("================================")
           PY
 
-      - name: Backup mentése
+      - name: Változások mentése
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
           git add backup.m3u
 
           if git diff --cached --quiet; then
             echo "Nincs változás."
-          else
-            git commit -m "Automatikus backup playlist frissítés"
-            git push
+            exit 0
           fi
+
+          git commit -m "Automatikus backup playlist frissítés"
+
+          git pull --rebase origin main
+
+          git push origin main
