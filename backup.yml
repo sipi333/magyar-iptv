@@ -1,0 +1,116 @@
+name: IPTV Backup
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 */6 * * *"
+
+permissions:
+  contents: write
+
+jobs:
+  update-backup:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Repository letöltése
+        uses: actions/checkout@v4
+
+      - name: Backup M3U létrehozása
+        run: |
+          python - <<'PY'
+          import urllib.request
+
+          HU_URL = "https://iptv-org.github.io/iptv/countries/hu.m3u"
+          SPORTS_URL = "https://iptv-org.github.io/iptv/categories/sports.m3u"
+
+          SPORT_NAMES = [
+              "FIFA+",
+              "FIFA Plus",
+              "FIFA+ Women",
+              "FIFA Plus Women",
+              "Sky Sports F1",
+              "Sport 1 Baltic",
+              "Sport 5",
+          ]
+
+          def download(url):
+              request = urllib.request.Request(
+                  url,
+                  headers={"User-Agent": "Mozilla/5.0"}
+              )
+              with urllib.request.urlopen(request, timeout=180) as response:
+                  return response.read().decode("utf-8", errors="replace")
+
+          def parse_m3u(text):
+              lines = text.splitlines()
+              result = []
+              i = 0
+
+              while i < len(lines):
+                  if lines[i].startswith("#EXTINF:"):
+                      info = lines[i]
+                      j = i + 1
+
+                      while j < len(lines) and not lines[j].strip():
+                          j += 1
+
+                      if j < len(lines):
+                          url = lines[j].strip()
+
+                          if url and not url.startswith("#"):
+                              result.append((info, url))
+
+                      i = j
+
+                  i += 1
+
+              return result
+
+          hu_entries = parse_m3u(download(HU_URL))
+          sport_entries = parse_m3u(download(SPORTS_URL))
+
+          output = ["#EXTM3U"]
+
+          # TELJES MAGYAR IPTV-ORG LISTA, SZŰRÉS NÉLKÜL
+          for info, url in hu_entries:
+              output.append(info)
+              output.append(url)
+
+          # CSAK A KIVÁLASZTOTT SPORTCSATORNÁK
+          added = set()
+
+          for info, url in sport_entries:
+              channel_name = info.split(",", 1)[-1].strip()
+
+              if any(
+                  name.lower() in channel_name.lower()
+                  for name in SPORT_NAMES
+              ):
+                  key = (info, url)
+
+                  if key not in added:
+                      output.append(info)
+                      output.append(url)
+                      added.add(key)
+
+          with open("backup.m3u", "w", encoding="utf-8") as file:
+              file.write("\n".join(output) + "\n")
+
+          print("Magyar csatornák:", len(hu_entries))
+          print("Kiválasztott sportcsatornák:", len(added))
+          print("Backup elkészült.")
+          PY
+
+      - name: Backup mentése
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backup.m3u
+
+          if git diff --cached --quiet; then
+            echo "Nincs változás."
+          else
+            git commit -m "Automatikus backup playlist frissítés"
+            git push
+          fi
