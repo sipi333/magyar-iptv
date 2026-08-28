@@ -1,97 +1,124 @@
-import json
 import re
 import urllib.request
 from pathlib import Path
 
 SOURCE = "https://iptv-org.github.io/iptv/countries/hu.m3u"
-CHANNELS_API = "https://iptv-org.github.io/api/channels.json"
-
 OUTPUT = Path("magyar.m3u")
 
 
 # ============================================================
-# FIXEN KIZÁRANDÓ HELYI / VÁROSI / RÉGIÓS CSATORNÁK
+# HELYI / VÁROSI / KERÜLETI / RÉGIÓS CSATORNÁK
 # ============================================================
 
-EXCLUDE_IDS = {
-    "16tvBudapest.hu",
-    "AlfoldTV.hu",
-    "BajaiTV.hu",
-    "BalatonTV.hu",
-    "BerenteTV.hu",
-    "BudapestEuropaTelevizio.hu",
-    "CsurgoTV.hu",
-    "DaruTV.hu",
-    "DTV.hu",
-    "EgykerTV.hu",
-    "ESTV.hu",
-    "FehervarTV.hu",
-    "GloboTV.hu",
-    "GolyaTV.hu",
-    "GyongyosiTV.hu",
-    "HangulatTV.hu",
-    "Hatoscsatorna.hu",
-    "HegyvidekTV.hu",
-    "HeviziTV.hu",
-    "JaszsagiTersegiTV.hu",
-    "KanizsaTV.hu",
-    "KaposTV.hu",
-    "KarcagTV.hu",
-    "KecskemetiTV.hu",
-    "KiskorosTV.hu",
-    "KomaromiTelevizio.hu",
-    "KomlosTV.hu",
-    "LiceumTV.hu",
-    "MakoiVarosiTV.hu",
-    "MezokovesdiTelevizio.hu",
-    "MoraNetTV.hu",
-    "ObudaTV.hu",
-    "OroszlanyiVarosiTelevizio.hu",
-    "OzdiVarosiTV.hu",
-    "PilisTV.hu",
-    "PutnokVarosiTV.hu",
-    "RakosmenteTV.hu",
-    "RegioTV.hu",
-    "RegioPluszTV.hu",
-    "SoltvadkertiTelevizio.hu",
-    "SzecsenyTV.hu",
-    "SzolnokTV.hu",
-    "TataiTV.hu",
-    "TelePaks.hu",
-    "TiszaTV.hu",
-    "TV7Bekescsaba.hu",
-    "TVBudakalasz.hu",
-    "TVEger.hu",
-    "TVKeszthely.hu",
-    "TVSzentendre.hu",
-    "VasarhelyiTelevizio.hu",
-    "VolgyhidTV.hu",
-    "VTVFuzesabony.hu",
-    "VTVMor.hu",
-    "XVTV.hu",
-    "ZalaegerszegiTV.hu",
-    "ZugloTV.hu",
+EXCLUDE_NAMES = [
+    "16tv Budapest",
+    "Alföld TV",
+    "Bábolnai TV",
+    "Bajai TV",
+    "Balaton TV",
+    "Berente TV",
+    "Budapest Európa Televízió",
+    "City TV",
+    "Csurgó TV",
+    "Daru TV",
+    "DTV",
+    "Első Kerület TV",
+    "ESTV",
+    "Fehérvár TV",
+    "Globo TV",
+    "Gólya TV",
+    "Gyöngyösi TV",
+    "Hangulat TV",
+    "Hatcsatorna",
+    "Hegyvidék TV",
+    "Hévízi TV",
+    "Jász... Térségi TV",
+    "Kanizsa TV",
+    "Kapos TV",
+    "Karcag TV",
+    "Kecskeméti TV",
+    "Kiskőrös TV",
+    "Komáromi Televízió",
+    "Komlós TV",
+    "Liceum TV",
+    "Makói Városi TV",
+    "Mezőkövesdi Televízió",
+    "Móra-Net TV",
+    "Ózdi Városi TV",
+    "PilisTV",
+    "Putnok Városi TV",
+    "Rákosmente TV",
+    "Régió TV",
+    "RégióPlusz TV",
+    "Soltvadkerti Televízió",
+    "Szécsényi TV",
+    "Szolnok TV",
+    "Tatai TV",
+    "TelePaks",
+    "Tisza TV",
+    "TriMedio TV",
+    "TV7 Békéscsaba",
+    "TV Budakalász",
+    "TV Eger",
+    "TV Keszthely",
+    "TV Szentendre",
+    "TV Vásárhelyi Televízió",
+    "Völgyhíd TV",
+    "VTV Füzesabony",
+    "VTV Mór",
+    "XV TV",
+    "Zalaegerszegi TV",
+    "Zugló TV",
+]
 
-    # további gyakori helyi azonosítók
-    "CityTV.hu",
-    "TrimedioTV.hu",
-}
+
+# ============================================================
+# HELYI / REGIONÁLIS NÉVMINTÁK
+# ============================================================
+
+LOCAL_PATTERNS = [
+    r"\bvárosi\s+tv\b",
+    r"\bvarosi\s+tv\b",
+    r"\bvárosi\s+televízió\b",
+    r"\bvarosi\s+televizio\b",
+
+    r"\bhelyi\s+tv\b",
+    r"\bhelyi\s+televízió\b",
+    r"\bhelyi\s+televizio\b",
+
+    r"\bregionális\s+tv\b",
+    r"\bregionalis\s+tv\b",
+    r"\bregionális\s+televízió\b",
+    r"\bregionalis\s+televizio\b",
+
+    r"\brégiós\s+tv\b",
+    r"\bregios\s+tv\b",
+    r"\brégiós\s+televízió\b",
+    r"\bregios\s+televizio\b",
+
+    r"\btérségi\s+tv\b",
+    r"\btersegi\s+tv\b",
+
+    r"\bmegyei\s+tv\b",
+    r"\bmegyei\s+televízió\b",
+    r"\bmegyei\s+televizio\b",
+
+    r"\bkerületi\s+tv\b",
+    r"\bkeruleti\s+tv\b",
+
+    r"\bönkormányzati\s+tv\b",
+    r"\bonkormanyzati\s+tv\b",
+
+    r"\bközösségi\s+tv\b",
+    r"\bkozossegi\s+tv\b",
+]
 
 
 # ============================================================
 # VALLÁSI CSATORNÁK
 # ============================================================
 
-RELIGIOUS_IDS = {
-    "ApostolTV.hu",
-    "PaxTV.hu",
-    "EWTN.hu",
-    "BonumTV.hu",
-    "EWTNBonumTV.hu",
-}
-
-
-RELIGIOUS_WORDS = (
+RELIGIOUS = [
     "apostol",
     "pax tv",
     "paxtv",
@@ -113,300 +140,183 @@ RELIGIOUS_WORDS = (
     "vallási",
     "vallasi",
     "religious",
-)
+]
 
 
 # ============================================================
-# HELYI / VÁROSI / RÉGIÓS NÉVMINTÁK
+# RÁDIÓK IS KERÜLJENEK KI
 # ============================================================
 
-LOCAL_WORDS = (
-    "városi tv",
-    "varosi tv",
-    "városi televízió",
-    "varosi televizio",
-
-    "helyi tv",
-    "helyi televízió",
-    "helyi televizio",
-
-    "regionális tv",
-    "regionalis tv",
-    "regionális televízió",
-    "regionalis televizio",
-
-    "régiós tv",
-    "regios tv",
-    "régiós televízió",
-    "regios televizio",
-
-    "térségi tv",
-    "tersegi tv",
-    "térségi televízió",
-    "tersegi televizio",
-
-    "megyei tv",
-    "megyei televízió",
-    "megyei televizio",
-
-    "kerületi tv",
-    "keruleti tv",
-    "kerületi televízió",
-    "keruleti televizio",
-
-    "önkormányzati tv",
-    "onkormanyzati tv",
-    "önkormányzati televízió",
-    "onkormanyzati televizio",
-
-    "közösségi tv",
-    "kozossegi tv",
-
-    "local tv",
-    "localtv",
-)
-
-
-# ============================================================
-# RÁDIÓ KIZÁRÁSA
-# ============================================================
-
-RADIO_WORDS = (
+RADIO = [
     "rádió",
     "radio",
-)
+]
 
-
-# ============================================================
-# LETÖLTÉS
-# ============================================================
 
 def download(url):
     request = urllib.request.Request(
         url,
         headers={
-            "User-Agent": "Mozilla/5.0 IPTV Filter"
-        },
+            "User-Agent": "Mozilla/5.0"
+        }
     )
 
-    with urllib.request.urlopen(request, timeout=180) as response:
-        return response.read().decode("utf-8", errors="replace")
+    with urllib.request.urlopen(
+        request,
+        timeout=180
+    ) as response:
+        return response.read().decode(
+            "utf-8",
+            errors="replace"
+        )
 
-
-# ============================================================
-# NORMALIZÁLÁS
-# ============================================================
 
 def normalize(text):
     text = str(text or "").lower()
-    text = re.sub(r"\s+", " ", text)
+
+    text = (
+        text
+        .replace("ő", "ö")
+        .replace("ű", "ü")
+    )
+
+    text = re.sub(
+        r"\s+",
+        " ",
+        text
+    )
+
     return text.strip()
 
 
-def base_id(channel_id):
-    """
-    Példa:
-
-    BTV.hu@SD
-    BTV.hu@HD
-
-    mindkettőből:
-
-    BTV.hu
-    """
-
-    return channel_id.split("@", 1)[0].strip()
-
-
-def get_attr(line, name):
+def get_attr(line, attribute):
     match = re.search(
-        rf'(?:^|\s){re.escape(name)}="([^"]*)"',
+        rf'{re.escape(attribute)}="([^"]*)"',
         line
     )
 
-    return match.group(1) if match else ""
+    if match:
+        return match.group(1)
+
+    return ""
 
 
-# ============================================================
-# IPTV-ORG CSATORNA ADATBÁZIS
-# ============================================================
+def remove_quality_suffix(channel_id):
+    """
+    Például:
 
-def load_channels():
+    16tvBudapest.hu@SD
+    16tvBudapest.hu@HD
 
-    print("IPTV-org csatorna-adatbázis letöltése...")
+    ->
 
-    text = download(CHANNELS_API)
+    16tvBudapest.hu
+    """
 
-    data = json.loads(text)
-
-    channels = {}
-
-    for channel in data:
-
-        channel_id = str(
-            channel.get("id", "")
-        ).strip()
-
-        if channel_id:
-            channels[channel_id] = channel
-
-    print(
-        "IPTV-org adatbázis:",
-        len(channels),
-        "csatorna"
-    )
-
-    return channels
+    return channel_id.split(
+        "@",
+        1
+    )[0]
 
 
-# ============================================================
-# CSATORNA ELLENŐRZÉSE
-# ============================================================
+def should_remove(info):
 
-def should_exclude(info, channels):
-
-    channel_id = get_attr(
-        info,
-        "tvg-id"
-    )
-
-    clean_id = base_id(channel_id)
-
-    channel_name = info.split(
+    name = info.split(
         ",",
         1
     )[-1].strip()
+
+    tvg_id = get_attr(
+        info,
+        "tvg-id"
+    )
 
     group = get_attr(
         info,
         "group-title"
     )
 
-    database = channels.get(
-        clean_id,
-        {}
-    )
-
-    db_name = database.get(
-        "name",
-        ""
-    )
-
-    alt_names = database.get(
-        "alt_names",
-        []
-    )
-
-    categories = database.get(
-        "categories",
-        []
-    )
-
-    if not isinstance(
-        alt_names,
-        list
-    ):
-        alt_names = []
-
-    if not isinstance(
-        categories,
-        list
-    ):
-        categories = []
-
-    check = normalize(
-        " ".join(
-            [
-                clean_id,
-                channel_name,
-                group,
-                db_name,
-                " ".join(
-                    str(x)
-                    for x in alt_names
-                ),
-                " ".join(
-                    str(x)
-                    for x in categories
-                ),
-            ]
-        )
+    text = normalize(
+        name
+        + " "
+        + tvg_id
+        + " "
+        + group
     )
 
     # --------------------------------------------------------
-    # FIX HELYI ID
+    # NÉV ALAPÚ FIX KIZÁRÁS
     # --------------------------------------------------------
 
-    if clean_id in EXCLUDE_IDS:
-        return True
+    for excluded in EXCLUDE_NAMES:
 
-    # --------------------------------------------------------
-    # FIX VALLÁSI ID
-    # --------------------------------------------------------
-
-    if clean_id in RELIGIOUS_IDS:
-        return True
-
-    # --------------------------------------------------------
-    # IPTV-ORG RELIGIOUS KATEGÓRIA
-    # --------------------------------------------------------
-
-    category_values = {
-        normalize(x)
-        for x in categories
-    }
-
-    if "religious" in category_values:
-        return True
-
-    # --------------------------------------------------------
-    # VALLÁSI KULCSSZAVAK
-    # --------------------------------------------------------
-
-    for word in RELIGIOUS_WORDS:
-
-        if word in check:
+        if normalize(excluded) in text:
             return True
 
     # --------------------------------------------------------
-    # HELYI / VÁROSI / RÉGIÓS KULCSSZAVAK
+    # TVG-ID @SD / @HD LEVÁGÁSA
     # --------------------------------------------------------
 
-    for word in LOCAL_WORDS:
+    clean_id = normalize(
+        remove_quality_suffix(tvg_id)
+    )
 
-        if word in check:
+    for excluded in EXCLUDE_NAMES:
+
+        excluded_clean = normalize(
+            excluded
+        )
+
+        if (
+            excluded_clean
+            and excluded_clean.replace(" ", "")
+            in clean_id.replace(" ", "")
+        ):
+            return True
+
+    # --------------------------------------------------------
+    # HELYI / REGIONÁLIS
+    # --------------------------------------------------------
+
+    for pattern in LOCAL_PATTERNS:
+
+        if re.search(
+            pattern,
+            text,
+            re.IGNORECASE
+        ):
+            return True
+
+    # --------------------------------------------------------
+    # VALLÁSI
+    # --------------------------------------------------------
+
+    for word in RELIGIOUS:
+
+        if word in text:
             return True
 
     # --------------------------------------------------------
     # RÁDIÓ
     # --------------------------------------------------------
 
-    for word in RADIO_WORDS:
+    for word in RADIO:
 
-        if word in check:
+        if word in text:
             return True
 
     return False
 
 
-# ============================================================
-# FŐPROGRAM
-# ============================================================
-
 def main():
 
-    print()
-    print("======================================")
-    print(" MAGYAR IPTV AUTOMATIKUS SZŰRŐ")
-    print("======================================")
-    print()
+    print(
+        "IPTV-org magyar lista letöltése..."
+    )
 
-    channels = load_channels()
-
-    print()
-    print("Magyar IPTV lista letöltése...")
-
-    text = download(SOURCE)
+    text = download(
+        SOURCE
+    )
 
     lines = text.splitlines()
 
@@ -415,7 +325,7 @@ def main():
     ]
 
     total = 0
-    excluded = 0
+    removed = 0
     kept = 0
 
     seen = set()
@@ -438,8 +348,6 @@ def main():
 
         url = ""
 
-        extra_lines = []
-
         j = i + 1
 
         while j < len(lines):
@@ -453,72 +361,47 @@ def main():
                 url = candidate
                 break
 
-            if candidate:
-                extra_lines.append(
-                    lines[j]
-                )
-
             j += 1
 
-        channel_id = get_attr(
-            info,
-            "tvg-id"
-        )
-
-        channel_name = info.split(
+        name = info.split(
             ",",
             1
         )[-1].strip()
 
-        clean_id = base_id(
-            channel_id
+        tvg_id = get_attr(
+            info,
+            "tvg-id"
+        )
+
+        clean_id = remove_quality_suffix(
+            tvg_id
+        )
+
+        key = normalize(
+            clean_id or name
         )
 
         remove = False
 
-        # ----------------------------------------------------
-        # SZŰRÉS
-        # ----------------------------------------------------
-
-        if should_exclude(
-            info,
-            channels
-        ):
-            remove = True
-
-        # ----------------------------------------------------
-        # NINCS STREAM
-        # ----------------------------------------------------
-
         if not url:
             remove = True
 
-        # ----------------------------------------------------
-        # DUPLIKÁCIÓ
-        # ----------------------------------------------------
-
-        key = normalize(
-            clean_id
-            or channel_name
-        )
-
-        if not key:
+        elif not key:
             remove = True
 
         elif key in seen:
             remove = True
 
-        # ----------------------------------------------------
-        # KIMENET
-        # ----------------------------------------------------
+        elif should_remove(info):
+            remove = True
 
         if remove:
 
-            excluded += 1
+            removed += 1
 
             print(
-                "KIZÁRVA:",
-                channel_name
+                "KISZŰRVE:",
+                name
             )
 
         else:
@@ -526,19 +409,11 @@ def main():
             seen.add(key)
 
             output.append(info)
-
-            for extra in extra_lines:
-                output.append(extra)
-
             output.append(url)
 
             kept += 1
 
         i = j + 1
-
-    # ========================================================
-    # FÁJL MENTÉSE
-    # ========================================================
 
     OUTPUT.write_text(
         "\n".join(output)
@@ -547,26 +422,20 @@ def main():
     )
 
     print()
-    print("======================================")
-    print(" EREDMÉNY")
-    print("======================================")
+    print("==============================")
     print(
         "Forrás:",
         total
     )
     print(
         "Kiszűrve:",
-        excluded
+        removed
     )
     print(
         "Megmaradt:",
         kept
     )
-    print(
-        "Kimenet:",
-        OUTPUT
-    )
-    print("======================================")
+    print("==============================")
 
 
 if __name__ == "__main__":
