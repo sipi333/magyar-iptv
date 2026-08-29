@@ -3,24 +3,7 @@ import urllib.request
 from pathlib import Path
 
 SOURCE = "https://iptv-org.github.io/iptv/countries/hu.m3u"
-SPORTS_SOURCE = "https://iptv-org.github.io/iptv/categories/sports.m3u"
 OUTPUT = Path("magyar.m3u")
-
-# ============================================================
-# SPORTCSATORNÁK
-# ============================================================
-
-ALLOWED_SPORT_NAMES = (
-    "fifa+",
-    "fifa plus",
-    "fifa+ women",
-    "fifa plus women",
-    "sky sports f1",
-    "sport 1 baltic",
-    "sport 5",
-)
-
-ALLOWED_SPORT_IDS = set()
 
 # ============================================================
 # FIXEN KIZÁRANDÓ HELYI / VÁROSI / RÉGIÓS CSATORNÁK
@@ -204,11 +187,17 @@ def get_attr(line, name):
 
 
 def clean_id(channel_id):
+    """
+    @SD / @HD / egyéb minőség-utótag levágása.
+    Például:
+    ZugloTV.hu@SD -> ZugloTV.hu
+    ZugloTV.hu@HD -> ZugloTV.hu
+    """
     return channel_id.split("@", 1)[0].strip()
 
 
 # ============================================================
-# MAGYAR SZŰRÉS
+# SZŰRÉS
 # ============================================================
 
 def should_remove(info):
@@ -229,96 +218,44 @@ def should_remove(info):
         ])
     )
 
+    # --------------------------------------------------------
+    # FIX TVG-ID
+    # --------------------------------------------------------
+
     if clean_id(channel_id) in EXCLUDE_IDS:
         return True
+
+    # --------------------------------------------------------
+    # FIX TVG-ID normalizálva
+    # --------------------------------------------------------
 
     if base_channel_id in {
         normalize(x) for x in EXCLUDE_IDS
     }:
         return True
 
+    # --------------------------------------------------------
+    # HELYI / VÁROSI / RÉGIÓS
+    # --------------------------------------------------------
+
     for word in LOCAL_WORDS:
         if normalize(word) in check:
             return True
+
+    # --------------------------------------------------------
+    # VALLÁSI
+    # --------------------------------------------------------
 
     for word in RELIGIOUS_WORDS:
         if normalize(word) in check:
             return True
 
+    # --------------------------------------------------------
+    # RÁDIÓ
+    # --------------------------------------------------------
+
     for word in RADIO_WORDS:
         if normalize(word) in check:
-            return True
-
-    return False
-
-
-# ============================================================
-# M3U BLOKKOK FELDOLGOZÁSA
-# ============================================================
-
-def parse_entries(text):
-
-    lines = text.splitlines()
-    entries = []
-
-    i = 0
-
-    while i < len(lines):
-
-        line = lines[i].strip()
-
-        if not line.startswith("#EXTINF:"):
-            i += 1
-            continue
-
-        info = line
-        url = ""
-
-        j = i + 1
-
-        while j < len(lines):
-
-            candidate = lines[j].strip()
-
-            if candidate and not candidate.startswith("#"):
-                url = candidate
-                break
-
-            j += 1
-
-        entries.append((info, url))
-
-        i = j + 1
-
-    return entries
-
-
-# ============================================================
-# SPORTCSATORNA ENGEDÉLYEZÉSE
-# ============================================================
-
-def is_allowed_sport(info):
-
-    channel_id = get_attr(info, "tvg-id")
-    group = get_attr(info, "group-title")
-    name = info.split(",", 1)[-1].strip()
-
-    check = normalize(
-        " ".join([
-            channel_id,
-            clean_id(channel_id),
-            name,
-            group,
-        ])
-    )
-
-    # Pontos ID, ha később hozzáadunk ilyet
-    if clean_id(channel_id) in ALLOWED_SPORT_IDS:
-        return True
-
-    # Név/csoport alapú engedélyezés
-    for allowed in ALLOWED_SPORT_NAMES:
-        if normalize(allowed) in check:
             return True
 
     return False
@@ -333,31 +270,17 @@ def main():
     print("Magyar IPTV lista letöltése...")
 
     text = download(SOURCE)
-
-    print("Sport IPTV lista letöltése...")
-
-    sports_text = download(SPORTS_SOURCE)
-
     lines = text.splitlines()
-
-    sport_entries = parse_entries(
-        sports_text
-    )
 
     result = ["#EXTM3U"]
 
     total = 0
     excluded = 0
     kept = 0
-    sports_added = 0
 
     seen = set()
 
     i = 0
-
-    # ========================================================
-    # MAGYAR LISTA
-    # ========================================================
 
     while i < len(lines):
 
@@ -408,11 +331,7 @@ def main():
         if remove:
 
             excluded += 1
-
-            print(
-                "KISZŰRVE:",
-                name
-            )
+            print("KISZŰRVE:", name)
 
         else:
 
@@ -425,50 +344,6 @@ def main():
 
         i = j + 1
 
-    # ========================================================
-    # KIVÁLASZTOTT SPORTCSATORNÁK
-    # ========================================================
-
-    for info, url in sport_entries:
-
-        if not url:
-            continue
-
-        if not is_allowed_sport(info):
-            continue
-
-        channel_id = clean_id(
-            get_attr(info, "tvg-id")
-        )
-
-        name = info.split(",", 1)[-1].strip()
-
-        key = normalize(
-            channel_id or name
-        )
-
-        if not key:
-            continue
-
-        if key in seen:
-            continue
-
-        seen.add(key)
-
-        result.append(info)
-        result.append(url)
-
-        sports_added += 1
-
-        print(
-            "SPORT HOZZÁADVA:",
-            name
-        )
-
-    # ========================================================
-    # KIMENET
-    # ========================================================
-
     OUTPUT.write_text(
         "\n".join(result) + "\n",
         encoding="utf-8"
@@ -476,14 +351,9 @@ def main():
 
     print()
     print("==============================")
-    print("Magyar forrás:", total)
-    print("Magyar kiszűrve:", excluded)
-    print("Magyar megmaradt:", kept)
-    print("Sport hozzáadva:", sports_added)
-    print(
-        "Összes végső csatorna:",
-        kept + sports_added
-    )
+    print("Forrás:", total)
+    print("Kiszűrve:", excluded)
+    print("Megmaradt:", kept)
     print("==============================")
 
 
