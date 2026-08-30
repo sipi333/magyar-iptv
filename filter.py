@@ -6,7 +6,15 @@ SOURCE = "https://iptv-org.github.io/iptv/countries/hu.m3u"
 OUTPUT = Path("magyar.m3u")
 
 # ============================================================
-# FIXEN KIZÁRANDÓ HELYI / VÁROSI / RÉGIÓS CSATORNÁK
+# KIFEJEZETTEN MEGTARTANDÓ CSATORNÁK
+# ============================================================
+
+KEEP_IDS = {
+    "DunaWorld.hu",
+}
+
+# ============================================================
+# KIZÁRANDÓ HELYI / VÁROSI / RÉGIÓS CSATORNÁK
 # ============================================================
 
 EXCLUDE_IDS = {
@@ -72,10 +80,7 @@ EXCLUDE_IDS = {
     "ZalaegerszegiTV.hu",
     "ZugloTV.hu",
 
-    # ========================================================
-    # KÜLÖN KÉRT KIZÁRÁSOK
-    # ========================================================
-
+    # Külön kért kizárások
     "OrszaggyulesOGYplenaris.hu",
     "OrszaggyulesOGYTAB.hu",
     "WilliamsTV.hu",
@@ -195,13 +200,6 @@ def get_attr(line, name):
 
 
 def clean_id(channel_id):
-    """
-    @SD / @HD / egyéb minőség-utótag levágása.
-
-    Például:
-    ZugloTV.hu@SD -> ZugloTV.hu
-    ZugloTV.hu@HD -> ZugloTV.hu
-    """
     return channel_id.split("@", 1)[0].strip()
 
 
@@ -215,55 +213,51 @@ def should_remove(info):
     group = get_attr(info, "group-title")
     name = info.split(",", 1)[-1].strip()
 
-    original_id = normalize(channel_id)
-    base_channel_id = normalize(clean_id(channel_id))
+    base_channel_id = clean_id(channel_id)
+
+    # ========================================================
+    # DUNA WORLD KIVÉTEL
+    # Ezt minden más szabály előtt engedjük.
+    # ========================================================
+
+    if base_channel_id in KEEP_IDS:
+        return False
 
     check = normalize(
         " ".join([
-            original_id,
+            channel_id,
             base_channel_id,
             name,
             group,
         ])
     )
 
-    # --------------------------------------------------------
-    # FIX TVG-ID
-    # --------------------------------------------------------
+    # ========================================================
+    # FIXEN KIZÁRANDÓ ID-K
+    # ========================================================
 
-    if clean_id(channel_id) in EXCLUDE_IDS:
+    if base_channel_id in EXCLUDE_IDS:
         return True
 
-    # --------------------------------------------------------
-    # FIX TVG-ID normalizálva
-    # --------------------------------------------------------
-
-    normalized_exclude_ids = {
-        normalize(x) for x in EXCLUDE_IDS
-    }
-
-    if base_channel_id in normalized_exclude_ids:
-        return True
-
-    # --------------------------------------------------------
+    # ========================================================
     # HELYI / VÁROSI / RÉGIÓS
-    # --------------------------------------------------------
+    # ========================================================
 
     for word in LOCAL_WORDS:
         if normalize(word) in check:
             return True
 
-    # --------------------------------------------------------
+    # ========================================================
     # VALLÁSI
-    # --------------------------------------------------------
+    # ========================================================
 
     for word in RELIGIOUS_WORDS:
         if normalize(word) in check:
             return True
 
-    # --------------------------------------------------------
+    # ========================================================
     # RÁDIÓ
-    # --------------------------------------------------------
+    # ========================================================
 
     for word in RADIO_WORDS:
         if normalize(word) in check:
@@ -320,9 +314,10 @@ def main():
 
         name = info.split(",", 1)[-1].strip()
         channel_id = get_attr(info, "tvg-id")
+        base_channel_id = clean_id(channel_id)
 
         key = normalize(
-            clean_id(channel_id) or name
+            base_channel_id or name
         )
 
         remove = False
@@ -352,6 +347,9 @@ def main():
             result.append(url)
 
             kept += 1
+
+            if base_channel_id == "DunaWorld.hu":
+                print("MEGTARTVA: Duna World")
 
         i = j + 1
 
