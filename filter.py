@@ -5,17 +5,9 @@ from pathlib import Path
 SOURCE = "https://iptv-org.github.io/iptv/countries/hu.m3u"
 OUTPUT = Path("magyar.m3u")
 
-# ============================================================
-# KIFEJEZETTEN MEGTARTANDÓ CSATORNÁK
-# ============================================================
-
 KEEP_IDS = {
     "DunaWorld.hu",
 }
-
-# ============================================================
-# KIZÁRANDÓ HELYI / VÁROSI / RÉGIÓS CSATORNÁK
-# ============================================================
 
 EXCLUDE_IDS = {
     "16tvBudapest.hu",
@@ -79,16 +71,10 @@ EXCLUDE_IDS = {
     "XVTV.hu",
     "ZalaegerszegiTV.hu",
     "ZugloTV.hu",
-
-    # Külön kért kizárások
     "OrszaggyulesOGYplenaris.hu",
     "OrszaggyulesOGYTAB.hu",
     "WilliamsTV.hu",
 }
-
-# ============================================================
-# VALLÁSI CSATORNÁK
-# ============================================================
 
 RELIGIOUS_WORDS = (
     "apostol",
@@ -112,10 +98,6 @@ RELIGIOUS_WORDS = (
     "vallási",
     "religious",
 )
-
-# ============================================================
-# HELYI / VÁROSI / RÉGIÓS KULCSSZAVAK
-# ============================================================
 
 LOCAL_WORDS = (
     "városi tv",
@@ -156,18 +138,11 @@ LOCAL_WORDS = (
     "citytv",
 )
 
-# ============================================================
-# RÁDIÓ
-# ============================================================
-
 RADIO_WORDS = (
     "rádió",
     "radio",
 )
 
-# ============================================================
-# SEGÉDFÜGGVÉNYEK
-# ============================================================
 
 def download(url):
     request = urllib.request.Request(
@@ -175,14 +150,8 @@ def download(url):
         headers={"User-Agent": "Mozilla/5.0 IPTV Filter"}
     )
 
-    with urllib.request.urlopen(
-        request,
-        timeout=180
-    ) as response:
-        return response.read().decode(
-            "utf-8",
-            errors="replace"
-        )
+    with urllib.request.urlopen(request, timeout=180) as response:
+        return response.read().decode("utf-8", errors="replace")
 
 
 def normalize(text):
@@ -203,20 +172,13 @@ def clean_id(channel_id):
     return channel_id.split("@", 1)[0].strip()
 
 
-# ============================================================
-# SZŰRÉS
-# ============================================================
-
 def should_remove(info):
-
     channel_id = get_attr(info, "tvg-id")
     group = get_attr(info, "group-title")
     name = info.split(",", 1)[-1].strip()
 
     base_channel_id = clean_id(channel_id)
 
-    # Duna World kivétel:
-    # ha a forrásban megtalálható, mindig engedjük át.
     if base_channel_id in KEEP_IDS:
         return False
 
@@ -229,21 +191,17 @@ def should_remove(info):
         ])
     )
 
-    # Fixen kizárt csatornák
     if base_channel_id in EXCLUDE_IDS:
         return True
 
-    # Helyi / városi / regionális
     for word in LOCAL_WORDS:
         if normalize(word) in check:
             return True
 
-    # Vallási
     for word in RELIGIOUS_WORDS:
         if normalize(word) in check:
             return True
 
-    # Rádió
     for word in RADIO_WORDS:
         if normalize(word) in check:
             return True
@@ -251,12 +209,7 @@ def should_remove(info):
     return False
 
 
-# ============================================================
-# FŐPROGRAM
-# ============================================================
-
 def main():
-
     print("Magyar IPTV lista letöltése...")
     print("Forrás:", SOURCE)
 
@@ -268,14 +221,12 @@ def main():
     total = 0
     excluded = 0
     kept = 0
-
     seen = set()
     duna_world_found = False
 
     i = 0
 
     while i < len(lines):
-
         line = lines[i].strip()
 
         if not line.startswith("#EXTINF:"):
@@ -283,14 +234,12 @@ def main():
             continue
 
         total += 1
-
         info = line
         url = ""
 
         j = i + 1
 
         while j < len(lines):
-
             candidate = lines[j].strip()
 
             if candidate and not candidate.startswith("#"):
@@ -303,31 +252,24 @@ def main():
         channel_id = get_attr(info, "tvg-id")
         base_channel_id = clean_id(channel_id)
 
-        key = normalize(
-            base_channel_id or name
-        )
+        key = normalize(base_channel_id or name)
 
         remove = False
 
         if not url:
             remove = True
-
         elif not key:
             remove = True
-
         elif key in seen:
             remove = True
-
         elif should_remove(info):
             remove = True
 
         if remove:
-
             excluded += 1
             print("KISZŰRVE:", name)
 
         else:
-
             seen.add(key)
 
             result.append(info)
@@ -340,6 +282,72 @@ def main():
                 print("MEGTARTVA: Duna World")
 
         i = j + 1
+
+    # Ha a Duna World nem került át a countries/hu.m3u forrásból,
+    # az aktuális IPTV-org streams/hu.m3u forrásból megpróbáljuk
+    # külön hozzáadni.
+    if not duna_world_found:
+        print("Duna World nincs az országlistában, külön hozzáadás...")
+
+        try:
+            stream_text = download(
+                "https://raw.githubusercontent.com/iptv-org/iptv/master/streams/hu.m3u"
+            )
+
+            stream_lines = stream_text.splitlines()
+
+            i = 0
+
+            while i < len(stream_lines):
+                line = stream_lines[i].strip()
+
+                if not line.startswith("#EXTINF:"):
+                    i += 1
+                    continue
+
+                info = line
+                channel_id = get_attr(info, "tvg-id")
+                base_channel_id = clean_id(channel_id)
+
+                if base_channel_id == "DunaWorld.hu":
+                    j = i + 1
+                    extra_lines = []
+
+                    while j < len(stream_lines):
+                        candidate = stream_lines[j].strip()
+
+                        if candidate and not candidate.startswith("#"):
+                            extra_lines.append(candidate)
+                            break
+
+                        j += 1
+
+                    if extra_lines:
+                        result.append(info)
+
+                        # Megőrizzük az esetleges VLC/HTTP opciókat is.
+                        k = i + 1
+                        while k < j:
+                            option = stream_lines[k].strip()
+
+                            if option.startswith("#EXTVLCOPT:"):
+                                result.append(option)
+
+                            k += 1
+
+                        result.append(extra_lines[0])
+
+                        kept += 1
+                        duna_world_found = True
+
+                        print("KÜLÖN HOZZÁADVA: Duna World")
+
+                    break
+
+                i += 1
+
+        except Exception as e:
+            print("Duna World külön hozzáadása sikertelen:", e)
 
     OUTPUT.write_text(
         "\n".join(result) + "\n",
@@ -355,7 +363,7 @@ def main():
     if duna_world_found:
         print("Duna World: MEGTALÁLVA ÉS MEGTARTVA")
     else:
-        print("Duna World: NEM TALÁLHATÓ A FORRÁSBAN")
+        print("Duna World: NEM SIKERÜLT HOZZÁADNI")
 
     print("==============================")
 
