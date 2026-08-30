@@ -71,6 +71,14 @@ EXCLUDE_IDS = {
     "XVTV.hu",
     "ZalaegerszegiTV.hu",
     "ZugloTV.hu",
+
+    # ========================================================
+    # KÜLÖN KÉRT KIZÁRÁSOK
+    # ========================================================
+
+    "OrszaggyulesOGYplenaris.hu",
+    "OrszaggyulesOGYTAB.hu",
+    "WilliamsTV.hu",
 }
 
 # ============================================================
@@ -189,6 +197,7 @@ def get_attr(line, name):
 def clean_id(channel_id):
     """
     @SD / @HD / egyéb minőség-utótag levágása.
+
     Például:
     ZugloTV.hu@SD -> ZugloTV.hu
     ZugloTV.hu@HD -> ZugloTV.hu
@@ -229,9 +238,11 @@ def should_remove(info):
     # FIX TVG-ID normalizálva
     # --------------------------------------------------------
 
-    if base_channel_id in {
+    normalized_exclude_ids = {
         normalize(x) for x in EXCLUDE_IDS
-    }:
+    }
+
+    if base_channel_id in normalized_exclude_ids:
         return True
 
     # --------------------------------------------------------
