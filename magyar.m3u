@@ -47,6 +47,8 @@ https://fixhd.tv:8082/fix/1080i/playlist.m3u8
 https://budapest-cache-1.antik.sk/live/test_galaxy_4_atk_1200/playlist.m3u8
 #EXTINF:-1 tvg-id="HtMusicChannel.hu@SD" tvg-logo="https://i.imgur.com/sqC2hqV.png" group-title="Music",H!t Music Channel (480p)
 http://hitmusic.hu/hitmusic.m3u8
+#EXTINF:-1 tvg-id="HalomTV.hu@SD" tvg-logo="https://i.imgur.com/x8shi7l.png" group-title="General",Halom TV (576i)
+rtmp://212.92.13.108/live/livestream1
 #EXTINF:-1 tvg-id="History.hu@SD" tvg-logo="https://i.imgur.com/OWIK7FJ.png" http-user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36" group-title="Documentary",History (Hungary)
 http://88.212.15.19/live/history_hun/index.m3u8
 #EXTINF:-1 tvg-id="IzauraTV.hu@SD" tvg-logo="https://i.imgur.com/p9YFnpw.png" http-user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36" group-title="Entertainment",Izaura TV (1080p)
